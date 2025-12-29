@@ -54,7 +54,7 @@ const dbConfig = {
 node server.js
 ```
 
-The server will automatically create the `simplo_kanban` database and necessary tables if they don't exist.
+The server will automatically create the `koge_kanban` database and necessary tables if they don't exist.
 
 ### 4. Run the Application
 
@@ -81,7 +81,7 @@ You can serve the `dist` folder using a static file server, but you must still k
 ## Project Structure
 
 ```
-simplo-kanban/
+Koge-kanban/
 ├── components/       # React UI Components
 ├── services/         # Database logic (API adapter)
 ├── index.html        # Entry point
