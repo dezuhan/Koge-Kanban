@@ -64,18 +64,18 @@ const SEED_TASKS: Task[] = [
     },
     {
         id: 'intro-task-3',
-        title: '✨ Try AI Magic & Editing',
-        description: `Click this card to open the **Edit Modal**.\n\n**Try the AI Feature:**\n1. Change the title to something vague like "Make a website".\n2. Click the **AI Magic** button next to the title.\n3. Watch it generate a description and subtasks automatically!`,
+        title: '✏️ Edit Task Details',
+        description: `Click this card to open the **Edit Modal**.\n\nYou can add:\n*   Rich Text Descriptions (Markdown)\n*   Due Dates\n*   Assignees\n*   Subtasks`,
         status: 'To Do',
         priority: Priority.MEDIUM,
-        category: 'AI Feature',
+        category: 'Features',
         project: 'Welcome',
         isCompleted: false,
         createdAt: Date.now(),
         dueDate: null,
         subTasks: [
             { id: 'st-1', title: 'Open this task', isCompleted: true },
-            { id: 'st-2', title: 'Click AI Magic', isCompleted: false }
+            { id: 'st-2', title: 'Add a subtask', isCompleted: false }
         ]
     },
     {
@@ -232,7 +232,7 @@ const App: React.FC = () => {
                         },
                         {
                             element: '.btn-new-task',
-                            intro: 'Click here to create a new task. You can use our AI Magic feature to help write details!',
+                            intro: 'Click here to create a new task.',
                             position: 'left'
                         },
                         {

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Task, Priority, SubTask, Column } from '../types';
-import { X, Sparkles, Loader2, Plus, Trash2, CheckSquare, Square, Calendar, Image as ImageIcon, Link as LinkIcon, Upload, User } from 'lucide-react';
-import { generateTaskDetails } from '../services/geminiService';
+import { X, Plus, Trash2, CheckSquare, Square, Calendar, Image as ImageIcon, Link as LinkIcon, Upload, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface TaskModalProps {
@@ -27,7 +26,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
   const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
   
-  const [isAiLoading, setIsAiLoading] = useState(false);
   // Changed default to 'preview' as requested
   const [descTab, setDescTab] = useState<'write' | 'preview'>('preview');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,32 +101,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     }
   };
 
-  const handleAiAssist = async () => {
-    if (!title) return;
-    setIsAiLoading(true);
-    try {
-      const suggestion = await generateTaskDetails(title, description);
-      if (suggestion) {
-        if (suggestion.description) setDescription(suggestion.description);
-        if (suggestion.category) setCategory(suggestion.category);
-        if (suggestion.priority) setPriority(suggestion.priority as Priority);
-        if (suggestion.subTasks && Array.isArray(suggestion.subTasks)) {
-           const newSubTasks = suggestion.subTasks.map((st: string) => ({
-             id: crypto.randomUUID(),
-             title: st,
-             isCompleted: false
-           }));
-           setSubTasks(prev => [...prev, ...newSubTasks]);
-        }
-        setDescTab('preview'); // Switch to preview to show AI result
-      }
-    } catch (e) {
-      alert("Failed to fetch AI suggestions. Check your API key.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
   const addSubTask = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!newSubTaskTitle.trim()) return;
@@ -162,7 +134,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         </div>
 
         <form onSubmit={handleSubmit} className="task-modal-form flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Title & AI */}
+          {/* Title */}
           <div className="form-group">
             <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
             <div className="flex gap-2">
@@ -174,16 +146,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., Fix login bug"
               />
-              <button
-                type="button"
-                onClick={handleAiAssist}
-                disabled={!title || isAiLoading}
-                className="btn-ai-assist bg-purple-100 text-purple-700 px-3 py-2 rounded-lg hover:bg-purple-200 transition disabled:opacity-50 flex items-center gap-1 min-w-[100px] justify-center"
-                title="Auto-fill details and subtasks with AI"
-              >
-                {isAiLoading ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                <span className="hidden sm:inline text-sm font-medium">AI Magic</span>
-              </button>
             </div>
           </div>
 
