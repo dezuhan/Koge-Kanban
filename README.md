@@ -1,4 +1,4 @@
-# Simplo Kanban
+# Koge Kanban
 
 A streamlined, AI-enhanced Kanban board featuring drag-and-drop management, table views, and smart task assistance. This application is designed to run entirely in your browser using LocalStorage for data persistence, making it perfect for self-hosted, local device usage without complex server setups.
 
@@ -27,8 +27,8 @@ Follow these steps to run the application on your local machine.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/simplo-kanban.git
-cd simplo-kanban
+git clone https://github.com/dezuhan/koge-kanban.git
+cd koge-kanban
 ```
 
 ### 2. Install Dependencies
