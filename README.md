@@ -1,24 +1,23 @@
 # Koge Kanban
 
-A streamlined Kanban board featuring drag-and-drop management, table views, and project organization. This application is designed to run entirely in your browser using LocalStorage for data persistence, making it perfect for self-hosted, local device usage without complex server setups.
+A streamlined Kanban board featuring drag-and-drop management, table views, and project organization. This application requires a local MariaDB server for data persistence.
 
 ## Features
 
 *   **Project Management**: Create multiple projects/workspaces.
 *   **Kanban Board**: Drag-and-drop tasks between custom columns.
 *   **Table View**: A structured list view of all tasks.
-*   **Media Support**: Attach image links or upload images (saved locally).
-*   **Customization**: Customize column colors (backgrounds reflect the column color) and priority settings.
-*   **Offline First**: Data is stored in your browser's LocalStorage.
-*   **Optional Database**: Can connect to a MariaDB database via a local Node.js server. If the server is unreachable, it automatically falls back to LocalStorage.
+*   **Media Support**: Attach image links or upload images (saved to DB).
+*   **Customization**: Customize column colors and priority settings.
+*   **Database Driven**: Data is stored in a MariaDB database.
 
 ## Prerequisites
 
 *   **Node.js**: Version 18.0.0 or higher.
 *   **NPM**: Included with Node.js.
-*   **(Optional) MariaDB**: If you want to use database persistence.
+*   **MariaDB**: Required for data storage.
 
-## Installation & Setup (Self-Hosted Local Device)
+## Installation & Setup
 
 Follow these steps to run the application on your local machine.
 
@@ -35,7 +34,21 @@ cd koge-kanban
 npm install
 ```
 
-### 3. Run the Application
+### 3. Setup Database (MariaDB)
+
+1.  Ensure MariaDB is installed and running on your machine.
+2.  Update the database credentials in `server.js` if they differ from the defaults (user: root, no password).
+3.  Start the backend server:
+
+```bash
+node server.js
+```
+
+The server will automatically create the `simplo_kanban` database and necessary tables if they don't exist.
+
+### 4. Run the Application
+
+In a new terminal window:
 
 ```bash
 npm run dev
@@ -43,56 +56,24 @@ npm run dev
 
 This will start the development server (usually at `http://localhost:5173`). Open this URL in your browser.
 
-### 4. (Optional) Run the Database Server
+**Note**: You must have `node server.js` running for the application to work.
 
-If you want to use MariaDB for storage instead of just LocalStorage:
+### 5. Building for Production
 
-1.  Ensure MariaDB is installed and running on your machine.
-2.  Update the database credentials in `server.js` if necessary.
-3.  Start the backend server:
-
-```bash
-node server.js
-```
-
-The application will now try to fetch data from `http://localhost:3000`. If the server is not running, it will automatically fall back to LocalStorage.
-
-### 5. Building for Production (Static Files)
-
-If you want to run this as a static site (e.g., serve it with Nginx, Apache, or a simple HTTP server) without needing `npm run dev` constantly:
+To build the frontend for production:
 
 ```bash
 npm run build
 ```
 
-This generates a `dist/` folder. You can serve this folder using any static file server.
-
-Example using `serve`:
-
-```bash
-npm install -g serve
-serve -s dist
-```
-
-## Usage Guide
-
-1.  **Creating a Project**: Click "New Project" on the dashboard.
-2.  **Adding Columns**: Click the `+` button on the far right of the board. You can select a color for the column; the board background for that column will adopt a light tint of that color.
-3.  **Adding Tasks**: Click "New Task" or the `+` icon on a specific column.
-4.  **Media**: In the task modal, you can paste an image URL or upload an image from your device. *Note: Uploaded images are stored in LocalStorage. Keep them small (under 2MB) to avoid hitting browser storage limits.*
-
-## Data Persistence
-
-*   **Priority**: The app tries to connect to the backend server (MariaDB) first.
-*   **Fallback**: If the server is unreachable, data is loaded from and saved to your browser's **LocalStorage**.
-*   **Hybrid Save**: When saving data, it is always written to LocalStorage immediately for responsiveness, and then sent to the server.
+You can serve the `dist` folder using a static file server, but you must still keep the Node.js backend running for the API.
 
 ## Project Structure
 
 ```
 simplo-kanban/
-├── components/       # React UI Components (Board, Modal, Card, etc.)
-├── services/         # Database logic (LocalStorage adapter)
+├── components/       # React UI Components
+├── services/         # Database logic (API adapter)
 ├── index.html        # Entry point
 ├── index.tsx         # React root
 ├── App.tsx           # Main application logic

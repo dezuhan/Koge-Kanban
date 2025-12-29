@@ -89,8 +89,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) { // 2MB limit for local storage safety
-          alert("Image is too large for local storage (Max 2MB). Please use an external link.");
+      if (file.size > 8 * 1024 * 1024) { // 8MB limit to be safe with 10MB server limit
+          alert("Image is too large. Please upload an image smaller than 8MB.");
           return;
       }
       const reader = new FileReader();
