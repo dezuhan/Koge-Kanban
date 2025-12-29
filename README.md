@@ -41,6 +41,16 @@ npm install
 3.  Start the backend server:
 
 ```bash
+// Database Configuration
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost', 
+  user: process.env.DB_USER || 'root', 
+  password: process.env.DB_PASSWORD || '', //insert your password mariaDB into ''
+  connectionLimit: 5
+};
+```
+
+```bash
 node server.js
 ```
 
