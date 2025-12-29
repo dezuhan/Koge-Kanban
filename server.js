@@ -18,7 +18,7 @@ const dbConfig = {
   connectionLimit: 5
 };
 
-const DB_NAME = 'simplo_kanban';
+const DB_NAME = 'koge_kanban';
 
 // Create a pool
 let pool;
