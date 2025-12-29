@@ -10,6 +10,7 @@ import ColumnModal from './components/ColumnModal';
 import ProjectList from './components/ProjectList';
 import ProjectModal from './components/ProjectModal';
 import { db } from './services/db';
+import { dropProjectData } from './utils/cleanup';
 import introJs from 'intro.js';
 
 // Required Template Columns
@@ -322,6 +323,10 @@ const App: React.FC = () => {
 
   const handleDeleteProject = () => {
       if (!projectToDelete) return;
+
+      // Clean up DB resources: Drop data for tasks and columns associated with this project
+      dropProjectData(projectToDelete);
+
       setProjects(prev => prev.filter(p => p.id !== projectToDelete));
       setProjectToDelete(null);
       setIsDeleteProjectModalOpen(false);
@@ -513,7 +518,7 @@ const App: React.FC = () => {
                 onClose={() => setIsDeleteProjectModalOpen(false)}
                 onConfirm={handleDeleteProject}
                 title="Delete Project"
-                message="Are you sure you want to delete this project? All tasks inside it will be lost."
+                message="Are you sure you want to delete this project? All tasks inside it will be permanently deleted (Dropped)."
             />
           </>
       );
