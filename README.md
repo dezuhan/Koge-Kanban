@@ -1,3 +1,6 @@
+
+<img width="1500" height="900" alt="Koge Kanban Thumbnail" src="https://github.com/user-attachments/assets/5a7e69bc-0358-46d3-bdae-e85461daa030" />
+
 # Koge Kanban
 
 A streamlined Kanban board featuring drag-and-drop management, table views, and project organization. This application requires a local MariaDB server for data persistence.
@@ -17,7 +20,7 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **NPM**: Included with Node.js.
 *   **MariaDB**: Required for data storage.
 
-## Installation & Setup
+## Local Installation & Setup
 
 Follow these steps to run the application on your local machine.
 
@@ -91,3 +94,68 @@ Koge-kanban/
 ├── vite.config.js    # Vite configuration
 └── package.json      # Dependencies and scripts
 ```
+
+# Local Data Gateway without Download Entire Code
+
+This repository contains the lightweight backend server required to run **Koge Kanban** in **Private Hybrid Mode**.
+
+This setup allows you to use the modern Koge Kanban web interface (hosted on Vercel) while keeping **100% of your data stored locally** on your machine via MariaDB. No data is ever sent to our cloud servers.
+
+## Architecture
+
+* **Frontend:** Hosted securely on Vercel [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
+* **Backend:** Runs locally on your machine (`localhost:3000`).
+* **Database:** Local MariaDB/MySQL instance.
+* **Connection:** The browser bridges the secure frontend to your local backend using **Private Network Access**.
+
+## Installation & Setup
+
+You do not need to clone the entire repository. You only need to set up the local server gateway.
+
+### 1. Initialize the Project
+Open your terminal, create a new directory, and initialize the environment:
+
+```bash
+mkdir koge-local-server
+cd koge-local-server
+npm init -y
+npm pkg set type="module"
+npm install express mariadb cors
+```
+
+### 2. Create the Server File
+Create a file named server.js in the directory and paste the following code.
+
+Note: Update the dbConfig object if your database uses a password or a different user than root.
+
+Copy code from **[server.js](https://github.com/dezuhan/Koge-Kanban/blob/main/server.js)** in this repo
+
+## Usage Guide
+
+### 1. Run the server
+
+Run the following command in your terminal:
+
+```bash
+node server.js
+```
+
+Keep this terminal window open.
+
+### 2. Connect via Browser
+Open your preferred browser (Chrome, Edge, or Brave).
+
+Navigate to the official frontend: [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
+
+Important: The browser will verify that a public website is trying to access your local network. You will see a prompt:
+
+"Allow site to access your local network?"
+
+Click Allow.
+
+<img width="753" height="514" alt="image" src="https://github.com/user-attachments/assets/72056d5e-8607-4637-aada-a0150fdf3cfd" />
+
+Refresh the page
+
+### 3. Verification
+Create a new project or move a card. Refresh the page. If your changes persist, the connection is successful!
