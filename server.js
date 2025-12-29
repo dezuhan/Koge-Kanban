@@ -18,7 +18,7 @@ const dbConfig = {
   connectionLimit: 5
 };
 
-const DB_NAME = 'koge_kanban';
+const DB_NAME = 'simplo_kanban';
 
 // Create a pool
 let pool;
@@ -106,6 +106,27 @@ app.post('/api/data/:key', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error(`Database write error for key ${req.params.key}:`, error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Generic DELETE endpoint (Hard Delete / Drop Data)
+app.delete('/api/data/:key', async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    
+    // Hard delete the row from the table
+    // This performs a true "Drop Data" operation for the specific key
+    await conn.query("DELETE FROM kv_store WHERE `key` = ?", [req.params.key]);
+    
+    res.json({ success: true, message: `Data for ${req.params.key} dropped successfully.` });
+  } catch (error) {
+    console.error(`Database delete error for key ${req.params.key}:`, error);
     res.status(500).json({ error: 'Internal server error' });
   } finally {
     if (conn) conn.release();
