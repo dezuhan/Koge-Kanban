@@ -19,6 +19,7 @@ interface BoardViewProps {
   onColumnMove: (activeId: string, overId: string) => void;
   onAddTask: (columnId: string) => void;
   prioritySettings: PrioritySettings;
+  isDragEnabled?: boolean;
 }
 
 type ActiveDragItem = 
@@ -151,11 +152,12 @@ const BoardView: React.FC<BoardViewProps> = ({
     onDeleteTask, 
     onToggleCheck, 
     onAddColumn, 
-    onEditColumn, 
-    onDeleteColumn, 
-    onColumnMove, 
+    onEditColumn,
+    onDeleteColumn,
+    onColumnMove,
     onAddTask,
-    prioritySettings 
+    prioritySettings,
+    isDragEnabled = true
 }) => {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [activeItem, setActiveItem] = React.useState<ActiveDragItem | null>(null);
@@ -169,6 +171,7 @@ const BoardView: React.FC<BoardViewProps> = ({
   );
 
   const handleDragStart = (event: DragStartEvent) => {
+    if (!isDragEnabled) return;
     setActiveId(event.active.id as string);
     if (event.active.data.current) {
         setActiveItem(event.active.data.current as ActiveDragItem);

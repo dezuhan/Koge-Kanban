@@ -46,7 +46,6 @@ const BoardPage: React.FC = () => {
   const [editingColumn, setEditingColumn] = useState<Column | null>(null);
   
   // Filters
-  const [sortOption, setSortOption] = useState<SortOption>('none');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterProject, setFilterProject] = useState('All');
   const [filterCategory, setFilterCategory] = useState('All');
@@ -230,7 +229,7 @@ const BoardPage: React.FC = () => {
     });
   };
 
-  // Filter & Sort Logic
+  // Filter Logic
   const processedTasks = useMemo(() => {
     let result = [...tasks];
 
@@ -251,24 +250,14 @@ const BoardPage: React.FC = () => {
         result = result.filter(t => t.category === filterCategory);
     }
 
-    if (sortOption !== 'none') {
-      result.sort((a, b) => {
-        if (sortOption === 'date') return b.createdAt - a.createdAt;
-        if (sortOption === 'priority') {
-           const pMap = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
-           return pMap[b.priority] - pMap[a.priority];
-        }
-        if (sortOption === 'category') return a.category.localeCompare(b.category);
-        if (sortOption === 'status') return a.status.localeCompare(b.status);
-        if (sortOption === 'dueDate') {
-            return (a.dueDate || Infinity) - (b.dueDate || Infinity);
-        }
-        return 0;
-      });
-    }
-
     return result;
-  }, [tasks, sortOption, searchQuery, viewMode, filterProject, filterCategory]);
+  }, [tasks, searchQuery, viewMode, filterProject, filterCategory]);
+
+  // Determine if Drag and Drop should be enabled
+  const isDragEnabled = useMemo(() => {
+      // Only enable drag if no search query, and no filters are active
+      return !searchQuery && filterProject === 'All' && filterCategory === 'All';
+  }, [searchQuery, filterProject, filterCategory]);
 
   if (!currentProject) return null; // Or loader
 
@@ -346,25 +335,6 @@ const BoardPage: React.FC = () => {
       {/* Toolbar */}
       <div className="app-toolbar px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
          <div className="filters flex flex-wrap items-center gap-4 text-sm text-gray-600">
-            <div className="filter-sort flex items-center gap-2">
-                <Filter size={16} />
-                <span className="font-medium">Sort:</span>
-                <select 
-                    value={sortOption} 
-                    onChange={(e) => setSortOption(e.target.value as SortOption)}
-                    className="bg-white border border-gray-200 rounded px-2 py-1 outline-none text-gray-800 cursor-pointer focus:border-blue-500"
-                >
-                    <option value="none">Default</option>
-                    <option value="date">Created Date</option>
-                    <option value="dueDate">Due Date</option>
-                    <option value="priority">Priority</option>
-                    <option value="category">Category</option>
-                    <option value="status">Status</option>
-                </select>
-            </div>
-
-            <div className="separator h-4 w-px bg-gray-300 hidden sm:block"></div>
-
             <div className="filter-project flex items-center gap-2">
                 <span className="font-medium">Sub-Project:</span>
                 <select 
@@ -403,7 +373,7 @@ const BoardPage: React.FC = () => {
             <BoardView 
                 tasks={processedTasks} 
                 columns={columns}
-                onTaskMove={sortOption === 'none' && filterProject === 'All' && filterCategory === 'All' ? handleTaskMove : () => {}} 
+                onTaskMove={isDragEnabled ? handleTaskMove : () => {}} 
                 onEditTask={handleEditTask}
                 onDeleteTask={confirmDeleteTask}
                 onToggleCheck={handleToggleCheck}
@@ -411,8 +381,9 @@ const BoardPage: React.FC = () => {
                 onAddColumn={handleAddColumn}
                 onEditColumn={handleEditColumn}
                 onDeleteColumn={handleDeleteColumn}
-                onColumnMove={sortOption === 'none' && filterProject === 'All' && filterCategory === 'All' ? handleColumnMove : () => {}}
+                onColumnMove={isDragEnabled ? handleColumnMove : () => {}}
                 onAddTask={handleAddTaskToColumn}
+                isDragEnabled={isDragEnabled}
             />
         ) : (
             <TableView 
