@@ -65,6 +65,35 @@ async function initializeDatabase() {
 // Initialize DB on startup
 initializeDatabase();
 
+// New Endpoint: Get all tasks from all projects
+app.get('/api/tasks/global', async (req, res) => {
+  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+  
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    // Fetch all keys starting with 'tasks_'
+    const rows = await conn.query("SELECT `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
+    
+    // Flatten all task arrays into one single array
+    const allTasks = rows.reduce((acc, row) => {
+        try {
+            const tasks = JSON.parse(row.value);
+            return Array.isArray(tasks) ? [...acc, ...tasks] : acc;
+        } catch (e) {
+            return acc;
+        }
+    }, []);
+    
+    res.json(allTasks);
+  } catch (error) {
+    console.error(`Database global tasks error:`, error);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 // Generic GET endpoint
 app.get('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
@@ -112,18 +141,14 @@ app.post('/api/data/:key', async (req, res) => {
   }
 });
 
-// Generic DELETE endpoint (Hard Delete / Drop Data)
+// Generic DELETE endpoint
 app.delete('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
 
   let conn;
   try {
     conn = await pool.getConnection();
-    
-    // Hard delete the row from the table
-    // This performs a true "Drop Data" operation for the specific key
     await conn.query("DELETE FROM kv_store WHERE `key` = ?", [req.params.key]);
-    
     res.json({ success: true, message: `Data for ${req.params.key} dropped successfully.` });
   } catch (error) {
     console.error(`Database delete error for key ${req.params.key}:`, error);
