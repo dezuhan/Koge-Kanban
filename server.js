@@ -23,6 +23,10 @@ const DB_NAME = 'koge_kanban';
 // Create a pool
 let pool;
 
+/**
+ * Initializes the MariaDB database connection and ensures the required table exists.
+ * It attempts to create the database if it doesn't exist, then creates the 'kv_store' table.
+ */
 async function initializeDatabase() {
   let conn;
   try {
@@ -66,6 +70,18 @@ async function initializeDatabase() {
 initializeDatabase();
 
 // New Endpoint: Get all tasks from all projects
+/**
+ * GET /api/tasks/global
+ * Retrieves all tasks from all projects stored in the database.
+ * Used for the "Recent Tasks" dashboard.
+ * 
+ * Logic:
+ * 1. Fetches all rows where key starts with 'tasks_'.
+ * 2. Parses the JSON value of each row.
+ * 3. Extracts the Project ID from the key ('tasks_{projectId}').
+ * 4. Injects the '_projectId' into each task object for frontend lookup.
+ * 5. Returns a flattened array of all tasks.
+ */
 app.get('/api/tasks/global', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
   
@@ -74,14 +90,29 @@ app.get('/api/tasks/global', async (req, res) => {
     conn = await pool.getConnection();
     console.log("Fetching global tasks...");
     // Fetch all keys starting with 'tasks_'
-    const rows = await conn.query("SELECT `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
+    const rows = await conn.query("SELECT `key`, `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
     console.log(`Found ${rows.length} project task entries.`);
     
-    // Flatten all task arrays into one single array
+    // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
         try {
+            // Key format: "tasks_{projectId}"
+            // Extract projectId from the key name
+            // e.g. "tasks_intro-project-welcome" -> "intro-project-welcome"
+            const keyParts = row.key ? row.key.split('tasks_') : [];
+            const projectId = keyParts.length > 1 ? keyParts[1] : null;
+
             const tasks = JSON.parse(row.value);
-            return Array.isArray(tasks) ? [...acc, ...tasks] : acc;
+            
+            if (Array.isArray(tasks)) {
+                // Inject the real Project ID into the task object for easier lookup
+                const tasksWithPid = tasks.map(t => ({
+                    ...t,
+                    _projectId: projectId // Add internal field for lookup
+                }));
+                return [...acc, ...tasksWithPid];
+            }
+            return acc;
         } catch (e) {
             console.error("Error parsing task row", e);
             return acc;
@@ -99,6 +130,10 @@ app.get('/api/tasks/global', async (req, res) => {
 });
 
 // Generic GET endpoint
+/**
+ * GET /api/data/:key
+ * Retrieves a specific JSON value by its key.
+ */
 app.get('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
   
@@ -122,6 +157,11 @@ app.get('/api/data/:key', async (req, res) => {
 });
 
 // Generic POST endpoint
+/**
+ * POST /api/data/:key
+ * Saves (Upserts) a JSON value to a specific key.
+ * Uses ON DUPLICATE KEY UPDATE to handle both inserts and updates.
+ */
 app.post('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
 
@@ -146,6 +186,10 @@ app.post('/api/data/:key', async (req, res) => {
 });
 
 // Generic DELETE endpoint
+/**
+ * DELETE /api/data/:key
+ * Deletes a specific row by its key.
+ */
 app.delete('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
 

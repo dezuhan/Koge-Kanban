@@ -1,23 +1,39 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Project, Task, Priority } from '../types';
-import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User } from 'lucide-react';
+import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { db } from '../services/db';
 
 interface ProjectListProps {
+  /** List of all available projects */
   projects: Project[];
-  onSelectProject: (project: Project) => void;
+  /** Handler when a project or a specific task in a project is selected */
+  onSelectProject: (project: Project, taskId?: string) => void;
+  /** Handler for adding a new project */
   onAddProject: () => void;
+  /** Handler for editing a project */
   onEditProject: (project: Project) => void;
+  /** Handler for deleting a project */
   onDeleteProject: (id: string) => void;
 }
 
+/**
+ * ProjectList Component
+ * Displays the main dashboard including:
+ * 1. "Recent Tasks" section (Global tasks from all projects)
+ * 2. "My Boards" section (Grid of projects)
+ */
 const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, onAddProject, onEditProject, onDeleteProject }) => {
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [dashboardFilter, setDashboardFilter] = useState<'dueDate' | 'priority'>('dueDate');
   const [dashboardView, setDashboardView] = useState<'grid' | 'list'>('grid');
+  const [isRecentTasksCollapsed, setIsRecentTasksCollapsed] = useState(false);
 
   useEffect(() => {
+    /**
+     * Fetches all tasks from all projects to display in the "Recent Tasks" section.
+     * Hits the backend endpoint /api/tasks/global.
+     */
     const fetchGlobalTasks = async () => {
         setLoadingTasks(true);
         try {
@@ -33,22 +49,24 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
   }, []);
 
   const sortedDashboardTasks = useMemo(() => {
-    // Filter: Hanya ambil task yang BELUM selesai dan TIDAK berstatus 'Complete'
-    // Kita asumsikan status 'Complete' adalah ID standar untuk kolom selesai
+    // Filter: Only show active tasks (not completed, not in "Complete" status)
     let tasks = globalTasks.filter(t => !t.isCompleted && t.status !== 'Complete');
     
+    // Sort based on user selection
     if (dashboardFilter === 'dueDate') {
+        // Sort by Due Date: Tasks with nearest deadlines first
         tasks.sort((a, b) => {
             if (!a.dueDate) return 1;
             if (!b.dueDate) return -1;
             return a.dueDate - b.dueDate;
         });
     } else {
+        // Sort by Priority: High -> Medium -> Low
         const pMap = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
         tasks.sort((a, b) => pMap[b.priority] - pMap[a.priority]);
     }
 
-    return tasks.slice(0, 8); // Tampilkan 8 task terpenting
+    return tasks.slice(0, 8); // Display top 8 tasks
   }, [globalTasks, dashboardFilter]);
 
   const getPriorityColor = (priority: Priority) => {
@@ -63,8 +81,43 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
+  const handleTaskClick = (task: Task) => {
+        console.log("Clicked task:", task.title, "Project:", task.project);
+        
+        // 1. Try injected _projectId (most reliable from backend)
+        let proj = (task as any)._projectId 
+            ? projects.find(p => p.id === (task as any)._projectId)
+            : undefined;
+
+        // 2. Fallback: Search by ID directly (if task.project stores ID)
+        if (!proj) {
+            proj = projects.find(p => p.id === task.project);
+        }
+
+        // 3. Fallback: Search by Name (Exact)
+        if (!proj) {
+             proj = projects.find(p => p.name === task.project);
+        }
+
+        // 4. Fallback: Fuzzy Name Match
+        if (!proj) {
+             const normalize = (s: string) => s.replace(/[^\w\s]/gi, '').trim().toLowerCase();
+             const taskProjNorm = normalize(task.project);
+             proj = projects.find(p => normalize(p.name) === taskProjNorm) ||
+                    projects.find(p => p.name.includes(task.project) || task.project.includes(p.name));
+        }
+
+        console.log("Found project:", proj);
+        if (proj) {
+            onSelectProject(proj, task.id);
+        } else {
+            console.warn("Project not found for task:", task);
+            alert(`Could not find project "${task.project}" for this task.`);
+        }
+  };
+
   return (
-    <div className="project-list-view max-w-6xl mx-auto p-8 min-h-screen flex flex-col">
+    <div className="project-list-view max-w-6xl w-full mx-auto p-8 min-h-screen flex flex-col">
       {/* Top Header */}
       <div className="project-list-header flex justify-between items-center mb-8">
         <div>
@@ -85,54 +138,62 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       </div>
 
       {/* RECENT TASKS DASHBOARD (Based on Sketch) */}
-      <div className="dashboard-container mb-12 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
-        <div className="dashboard-header p-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
-            <div className="flex items-center gap-2">
-                <div className="bg-blue-100 text-blue-600 p-1.5 rounded-lg">
+      <div className="dashboard-container mb-12 bg-white rounded-2xl border border-gray-200 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+        <div className="dashboard-header p-4 border-b border-gray-100 flex items-center justify-between gap-3 bg-slate-50/50">
+            <div className="flex items-center gap-2 overflow-hidden">
+                <div className="bg-blue-100 text-blue-600 p-1.5 rounded-lg shrink-0">
                     <Clock size={20} />
                 </div>
-                <h2 className="font-bold text-gray-800 text-lg">Recent Tasks</h2>
+                <h2 className="font-bold text-gray-800 text-lg truncate">Recent Tasks</h2>
             </div>
 
-            <div className="dashboard-controls flex items-center gap-4">
-                {/* Filter Selector */}
-                <div className="flex bg-gray-200/60 p-1 rounded-xl">
-                    <button 
-                        onClick={() => setDashboardFilter('dueDate')}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dashboardFilter === 'dueDate' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            <div className="dashboard-controls flex items-center gap-2 sm:gap-3 shrink-0">
+                {/* Filter Dropdown */}
+                <div className="relative">
+                    <select 
+                        value={dashboardFilter} 
+                        onChange={(e) => setDashboardFilter(e.target.value as 'dueDate' | 'priority')}
+                        className="appearance-none bg-white border border-gray-200 text-gray-600 text-xs font-bold py-1.5 pl-8 pr-8 rounded-lg focus:outline-none focus:border-blue-500 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
                     >
-                        By Date
-                    </button>
-                    <button 
-                        onClick={() => setDashboardFilter('priority')}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dashboardFilter === 'priority' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                        By Priority
-                    </button>
+                        <option value="dueDate">By Date</option>
+                        <option value="priority">By Priority</option>
+                    </select>
+                    <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 </div>
 
-                <div className="w-px h-6 bg-gray-200"></div>
-
                 {/* View Mode Switcher */}
-                <div className="flex bg-gray-200/60 p-1 rounded-xl">
+                <div className="flex bg-gray-100 p-1 rounded-lg shrink-0">
                     <button 
                         onClick={() => setDashboardView('grid')}
-                        className={`p-1.5 rounded-lg transition-all ${dashboardView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`p-1.5 rounded-md transition-all ${dashboardView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                         title="Board View"
                     >
-                        <Grid size={18} />
+                        <Grid size={16} />
                     </button>
                     <button 
                         onClick={() => setDashboardView('list')}
-                        className={`p-1.5 rounded-lg transition-all ${dashboardView === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`p-1.5 rounded-md transition-all ${dashboardView === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                         title="List View"
                     >
-                        <List size={18} />
+                        <List size={16} />
                     </button>
                 </div>
+
+                <div className="w-px h-6 bg-gray-200 hidden sm:block"></div>
+
+                {/* Collapse Toggle */}
+                <button
+                    onClick={() => setIsRecentTasksCollapsed(!isRecentTasksCollapsed)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                    title={isRecentTasksCollapsed ? "Expand" : "Collapse"}
+                >
+                    {isRecentTasksCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
+                </button>
             </div>
         </div>
 
+        {!isRecentTasksCollapsed && (
         <div className="dashboard-content p-6">
             {loadingTasks ? (
                 <div className="flex items-center justify-center py-20">
@@ -144,10 +205,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         {sortedDashboardTasks.map(task => (
                             <div 
                                 key={task.id} 
-                                onClick={() => {
-                                    const proj = projects.find(p => p.name === task.project);
-                                    if (proj) onSelectProject(proj);
-                                }}
+                                onClick={() => handleTaskClick(task)}
                                 className="group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer flex flex-col h-full"
                             >
                                 <div className="flex justify-between items-start mb-3">
@@ -155,7 +213,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                                         <Folder size={10} /> {task.project}
                                     </span>
                                     <div className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                                        {task.status}
+                                        {task.title}
                                     </div>
                                 </div>
                                 
@@ -194,22 +252,18 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         {sortedDashboardTasks.map(task => (
                             <div 
                                 key={task.id}
-                                onClick={() => {
-                                    const proj = projects.find(p => p.name === task.project);
-                                    if (proj) onSelectProject(proj);
-                                }}
+                                onClick={() => handleTaskClick(task)}
                                 className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl hover:shadow-md hover:border-blue-100 transition-all cursor-pointer group"
                             >
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                                    <div className={`w-2 h-10 rounded-full ${task.priority === Priority.HIGH ? 'bg-red-400' : task.priority === Priority.MEDIUM ? 'bg-amber-400' : 'bg-blue-400'}`}></div>
-                                    <div className="min-w-0">
-                                        <h3 className="font-bold text-gray-800 text-sm truncate group-hover:text-blue-600 transition-colors">{task.title}</h3>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <span className="text-[10px] font-medium text-gray-400 flex items-center gap-1">
+                                    <div className={`w-2 self-stretch rounded-full ${task.priority === Priority.HIGH ? 'bg-red-400' : task.priority === Priority.MEDIUM ? 'bg-amber-400' : 'bg-blue-400'}`}></div>
+                                    <div className="min-w-0 py-1">
+                                        <h3 className="font-bold text-gray-800 text-sm group-hover:text-blue-600 transition-colors">{task.title}</h3>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded border border-gray-200 flex items-center gap-1">
                                                 <Folder size={10} /> {task.project}
                                             </span>
-                                            <span className="text-[10px] text-gray-300">•</span>
-                                            <span className="text-[10px] font-medium text-gray-400">{task.status}</span>
+                                            <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{task.status}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -243,6 +297,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                 </div>
             )}
         </div>
+        )}
       </div>
 
       {/* BOARDS / PROJECTS SECTION */}
