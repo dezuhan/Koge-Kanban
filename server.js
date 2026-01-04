@@ -14,7 +14,7 @@ app.use(express.json({ limit: '10mb' }));
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost', 
   user: process.env.DB_USER || 'root', 
-  password: process.env.DB_PASSWORD || '',
+  password: process.env.DB_PASSWORD || '812067',
   connectionLimit: 5
 };
 
@@ -72,8 +72,10 @@ app.get('/api/tasks/global', async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
+    console.log("Fetching global tasks...");
     // Fetch all keys starting with 'tasks_'
     const rows = await conn.query("SELECT `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
+    console.log(`Found ${rows.length} project task entries.`);
     
     // Flatten all task arrays into one single array
     const allTasks = rows.reduce((acc, row) => {
@@ -81,10 +83,12 @@ app.get('/api/tasks/global', async (req, res) => {
             const tasks = JSON.parse(row.value);
             return Array.isArray(tasks) ? [...acc, ...tasks] : acc;
         } catch (e) {
+            console.error("Error parsing task row", e);
             return acc;
         }
     }, []);
     
+    console.log(`Returning ${allTasks.length} global tasks.`);
     res.json(allTasks);
   } catch (error) {
     console.error(`Database global tasks error:`, error);

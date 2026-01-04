@@ -236,7 +236,10 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                     <Target size={48} className="mb-4 opacity-20" />
-                    <p className="font-medium">No pending tasks to display.</p>
+                    <p className="font-medium">
+                        {globalTasks.length === 0 ? "No tasks found in database." : "No pending tasks to display."}
+                    </p>
+                    <p className="text-xs mt-2 text-gray-300">Total Tasks: {globalTasks.length}</p>
                 </div>
             )}
         </div>
@@ -268,7 +271,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             {projects.map(project => (
               <div 
                 key={project.id} 
-                className="project-card group bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer flex flex-col h-52 relative overflow-hidden"
+                className="project-card group bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer flex flex-col h-[15rem] relative overflow-hidden"
                 onClick={() => onSelectProject(project)}
               >
                 <div className="project-card-body p-6 flex-1">
