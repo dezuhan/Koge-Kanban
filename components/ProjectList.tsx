@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Project, Task, Priority } from '../types';
-import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap } from 'lucide-react';
+import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target } from 'lucide-react';
 import { db } from '../services/db';
 
 interface ProjectListProps {
@@ -32,6 +32,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
   }, []);
 
   const sortedDashboardTasks = useMemo(() => {
+    // Filter out completed tasks and sort by selected criteria
     let tasks = globalTasks.filter(t => !t.isCompleted);
     
     if (dashboardFilter === 'dueDate') {
@@ -48,11 +49,11 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
     return tasks.slice(0, 4); // Only show top 4 critical tasks
   }, [globalTasks, dashboardFilter]);
 
-  const getPriorityColor = (priority: Priority) => {
+  const getPriorityBadgeStyle = (priority: Priority) => {
       switch(priority) {
-          case Priority.HIGH: return 'text-red-600 bg-red-50 border-red-100';
-          case Priority.MEDIUM: return 'text-amber-600 bg-amber-50 border-amber-100';
-          default: return 'text-blue-600 bg-blue-50 border-blue-100';
+          case Priority.HIGH: return 'text-red-600 bg-red-100/50 border-red-200';
+          case Priority.MEDIUM: return 'text-amber-600 bg-amber-100/50 border-amber-200';
+          default: return 'text-blue-600 bg-blue-100/50 border-blue-200';
       }
   };
 
@@ -61,107 +62,121 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       <div className="project-list-header flex justify-between items-center mb-10">
         <div>
            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-             <div className="bg-blue-600 p-2 rounded-lg text-white">
+             <div className="bg-blue-600 p-2 rounded-lg text-white shadow-lg shadow-blue-200">
                 <Layout size={28} />
              </div>
-             Workspace
+             My Workspace
            </h1>
-           <p className="text-gray-500 mt-2">Manage your kanban boards and monitor critical tasks.</p>
+           <p className="text-gray-500 mt-2">Oversee all your boards and track urgent milestones.</p>
         </div>
         <button 
           onClick={onAddProject}
-          className="btn-new-project bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 transition flex items-center gap-2 shadow-sm font-medium"
+          className="btn-new-project bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 shadow-sm hover:shadow-lg font-semibold"
         >
           <Plus size={20} /> New Project
         </button>
       </div>
 
-      {/* Attention Dashboard Section */}
+      {/* Attention Dashboard Section (Global Recent/Priority Tasks) */}
       {globalTasks.length > 0 && (
-          <div className="dashboard-section mb-12 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
-              <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/30">
+          <div className="dashboard-section mb-12 animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-2">
-                      <div className="bg-amber-100 text-amber-600 p-1.5 rounded-lg">
-                        <AlertCircle size={20} />
+                      <div className="bg-amber-500 text-white p-1 rounded-md">
+                        <Zap size={18} fill="currentColor" />
                       </div>
-                      <h2 className="font-bold text-gray-800">Attention Needed</h2>
+                      <h2 className="text-lg font-bold text-gray-800">Priority Dashboard</h2>
                   </div>
-                  <div className="flex bg-gray-100 p-1 rounded-lg self-start">
+                  
+                  <div className="flex items-center bg-gray-100 p-1 rounded-xl">
                       <button 
                         onClick={() => setDashboardFilter('dueDate')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${dashboardFilter === 'dueDate' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dashboardFilter === 'dueDate' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                       >
                         <Clock size={14} /> Due Date
                       </button>
                       <button 
                         onClick={() => setDashboardFilter('priority')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${dashboardFilter === 'priority' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${dashboardFilter === 'priority' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                       >
-                        <Zap size={14} /> Priority
+                        <Target size={14} /> Priority
                       </button>
                   </div>
               </div>
-              <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {loadingTasks ? (
                       Array(4).fill(0).map((_, i) => (
-                          <div key={i} className="h-24 bg-gray-50 rounded-xl animate-pulse"></div>
+                          <div key={i} className="h-32 bg-gray-100 rounded-2xl animate-pulse"></div>
                       ))
                   ) : sortedDashboardTasks.length > 0 ? (
                       sortedDashboardTasks.map(task => (
-                          <div key={task.id} className="dashboard-task-card p-4 rounded-xl border border-gray-100 hover:border-blue-200 hover:shadow-md transition-all group relative cursor-default">
-                              <div className="flex justify-between items-start mb-2">
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase ${getPriorityColor(task.priority)}`}>
-                                      {task.priority}
-                                  </span>
-                                  {task.dueDate && (
-                                      <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                          <Clock size={10} /> {new Date(task.dueDate).toLocaleDateString()}
-                                      </span>
-                                  )}
-                              </div>
-                              <h3 className="text-sm font-bold text-gray-800 truncate mb-1 group-hover:text-blue-600 transition-colors">{task.title}</h3>
-                              <div className="flex items-center justify-between mt-3">
-                                  <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded font-medium truncate max-w-[100px]">
+                          <div 
+                            key={task.id} 
+                            onClick={() => {
+                                const proj = projects.find(p => p.name === task.project);
+                                if (proj) onSelectProject(proj);
+                            }}
+                            className="group relative bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all cursor-pointer overflow-hidden"
+                          >
+                              {/* Background Accent */}
+                              <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50/30 rounded-full -mr-8 -mt-8 group-hover:bg-blue-100/40 transition-colors"></div>
+
+                              <div className="flex flex-col h-full">
+                                  {/* Project Badge */}
+                                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-3 uppercase tracking-wider">
+                                      <Folder size={10} />
                                       {task.project}
-                                  </span>
-                                  <button 
-                                    className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => {
-                                        const proj = projects.find(p => p.name === task.project);
-                                        if (proj) onSelectProject(proj);
-                                    }}
-                                    title="Go to project"
-                                  >
-                                    <ArrowRight size={14} />
-                                  </button>
+                                  </div>
+
+                                  <h3 className="text-sm font-bold text-gray-800 mb-4 line-clamp-2 leading-tight group-hover:text-blue-600 transition-colors">
+                                      {task.title}
+                                  </h3>
+
+                                  <div className="mt-auto flex items-center justify-between">
+                                      <div className={`flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase ${getPriorityBadgeStyle(task.priority)}`}>
+                                          {task.priority}
+                                      </div>
+
+                                      {task.dueDate ? (
+                                          <div className={`flex items-center gap-1 text-[10px] font-bold ${new Date(task.dueDate) < new Date() ? 'text-red-500' : 'text-gray-400'}`}>
+                                              <Calendar size={10} />
+                                              {new Date(task.dueDate).toLocaleDateString()}
+                                          </div>
+                                      ) : (
+                                          <span className="text-[10px] text-gray-300 font-medium">No Date</span>
+                                      )}
+                                  </div>
                               </div>
                           </div>
                       ))
                   ) : (
-                      <div className="col-span-full py-4 text-center text-gray-400 text-sm">
-                          No pending tasks found. Good job!
+                      <div className="col-span-full py-8 bg-gray-50/50 border-2 border-dashed border-gray-200 rounded-2xl text-center flex flex-col items-center gap-2">
+                          <AlertCircle size={32} className="text-gray-300" />
+                          <p className="text-sm text-gray-400 font-medium">No critical tasks found in any project.</p>
                       </div>
                   )}
               </div>
           </div>
       )}
 
+      {/* Boards Section */}
       <div className="flex-1">
         <div className="section-title flex items-center gap-2 mb-6">
-            <Folder className="text-gray-400" size={20} />
-            <h2 className="text-lg font-bold text-gray-700">My Boards</h2>
+            <h2 className="text-lg font-bold text-gray-800">Your Projects</h2>
+            <span className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full font-bold">{projects.length}</span>
         </div>
         
         {projects.length === 0 ? (
-          <div className="project-list-empty text-center py-20 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+          <div className="project-list-empty text-center py-20 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
              <Folder size={64} className="mx-auto text-gray-300 mb-4" />
-             <h3 className="text-xl font-medium text-gray-500">No projects yet</h3>
-             <p className="text-gray-400 mb-6">Create your first project to get started.</p>
+             <h3 className="text-xl font-medium text-gray-500">No boards found</h3>
+             <p className="text-gray-400 mb-6">Create a project to start organizing your work.</p>
              <button 
                 onClick={onAddProject}
-                className="btn-create-now text-blue-600 font-medium hover:underline"
+                className="btn-create-now text-blue-600 font-bold hover:underline"
              >
-               Create a project now
+               Add Project Now
              </button>
           </div>
         ) : (
@@ -169,42 +184,42 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             {projects.map(project => (
               <div 
                 key={project.id} 
-                className="project-card group bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md hover:border-blue-300 transition-all cursor-pointer flex flex-col h-48 relative"
+                className="project-card group bg-white rounded-2xl shadow-sm border border-gray-200 hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer flex flex-col h-52 relative overflow-hidden"
                 onClick={() => onSelectProject(project)}
               >
-                <div className="project-card-body p-5 flex-1">
-                  <div className="flex justify-between items-start mb-2">
-                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                          <Folder size={20} />
+                <div className="project-card-body p-6 flex-1">
+                  <div className="flex justify-between items-start mb-4">
+                      <div className="p-3 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300 shadow-sm">
+                          <Folder size={24} />
                       </div>
                       <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button 
                             onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
-                            className="btn-edit-project p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                            className="btn-edit-project p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
                             title="Edit Project"
                           >
                               <Edit2 size={16} />
                           </button>
                           <button 
                             onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                            className="btn-delete-project p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                            className="btn-delete-project p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
                             title="Delete Project"
                           >
                               <Trash2 size={16} />
                           </button>
                       </div>
                   </div>
-                  <h3 className="project-name font-bold text-gray-800 text-lg mb-1 truncate">{project.name}</h3>
-                  <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "No description"}</p>
+                  <h3 className="project-name font-bold text-gray-800 text-xl mb-1 truncate">{project.name}</h3>
+                  <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "No description provided."}</p>
                 </div>
                 
-                <div className="project-card-footer px-5 py-4 border-t border-gray-50 flex justify-between items-center bg-gray-50/50 rounded-b-xl">
-                   <div className="project-date flex items-center gap-1.5 text-xs text-gray-400">
+                <div className="project-card-footer px-6 py-4 border-t border-gray-50 flex justify-between items-center bg-gray-50/30">
+                   <div className="project-date flex items-center gap-1.5 text-xs text-gray-400 font-medium">
                       <Calendar size={12} />
-                      <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                      <span>Created {new Date(project.createdAt).toLocaleDateString()}</span>
                    </div>
-                   <div className="flex items-center gap-1 text-xs font-semibold text-blue-600 group-hover:translate-x-1 transition-transform">
-                      Open Board <ArrowRight size={12} />
+                   <div className="flex items-center gap-1 text-xs font-bold text-blue-600 group-hover:translate-x-1 transition-transform">
+                      Open Board <ArrowRight size={14} />
                    </div>
                 </div>
               </div>
@@ -214,53 +229,58 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       </div>
 
       {/* Social Media & Donate Footer */}
-      <footer className="mt-12 pt-8 border-t border-gray-100">
-         <div className="flex flex-col items-center gap-5 text-gray-500">
+      <footer className="mt-16 pt-8 border-t border-gray-100">
+         <div className="flex flex-col items-center gap-6 text-gray-500">
             <div className="flex items-center gap-6">
                <a 
                   href="https://instagram.com/dezuhan" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="hover:text-pink-600 transition-colors transform hover:scale-110" 
+                  className="hover:text-pink-600 transition-colors transform hover:scale-125 duration-300" 
                   title="Instagram"
                >
-                  <Instagram size={24} />
+                  <Instagram size={22} />
                </a>
                <a 
                   href="https://github.com/dezuhan" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="hover:text-gray-900 transition-colors transform hover:scale-110" 
+                  className="hover:text-gray-900 transition-colors transform hover:scale-125 duration-300" 
                   title="GitHub"
                >
-                  <Github size={24} />
+                  <Github size={22} />
                </a>
                <a 
                   href="https://linkedin.com/in/dzuhan" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="hover:text-blue-700 transition-colors transform hover:scale-110" 
+                  className="hover:text-blue-700 transition-colors transform hover:scale-125 duration-300" 
                   title="LinkedIn"
                >
-                  <Linkedin size={24} />
+                  <Linkedin size={22} />
                </a>
                
-               <div className="w-px h-6 bg-gray-300 mx-1"></div>
+               <div className="w-px h-6 bg-gray-200 mx-2"></div>
 
                <a 
-                  href="https://ko-fi.com/dezuhan" 
+                  href="https://ko-fi.com/dezuhan_" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="flex items-center gap-2 bg-[#FF5E5B] text-white px-4 py-1.5 rounded-full hover:bg-[#ff4642] transition-all shadow-sm hover:shadow-md font-medium text-sm transform hover:-translate-y-0.5" 
+                  className="flex items-center gap-2 bg-[#FF5E5B] text-white px-5 py-2 rounded-full hover:bg-[#ff4642] transition-all shadow-md hover:shadow-xl font-bold text-sm transform hover:-translate-y-1" 
                   title="Support on Ko-fi"
                >
-                  <Coffee size={18} />
+                  <Coffee size={18} fill="currentColor" />
                   <span>Donate</span>
                </a>
             </div>
-            <p className="text-xs text-gray-400">
-               © {new Date().getFullYear()} Developed by <span className="font-semibold text-gray-500">Dezuhan</span>
-            </p>
+            <div className="flex flex-col items-center gap-1">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                   KOGE KANBAN ENGINE
+                </p>
+                <p className="text-[10px] text-gray-300">
+                   © {new Date().getFullYear()} Handcrafted by <span className="text-gray-400">Dezuhan</span>
+                </p>
+            </div>
          </div>
       </footer>
     </div>
