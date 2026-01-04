@@ -21,7 +21,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
     const fetchGlobalTasks = async () => {
         setLoadingTasks(true);
         try {
-            // Mengambil semua task dari endpoint global MariaDB
+            // Mengambil semua task dari database MariaDB melalui server
             const tasks = await db.getAllGlobalTasks();
             setGlobalTasks(tasks || []);
         } catch (err) {
@@ -34,14 +34,13 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
   }, []);
 
   const sortedDashboardTasks = useMemo(() => {
-    // FILTER UTAMA: Ambil task yang checkbox "Mark main task as completed" bernilai FALSE
-    // Ini memastikan task dari kolom manapun (To-Do, On-Going, dll) muncul selama belum selesai.
+    // FILTER: Hanya ambil task yang checkbox "Mark main task as completed" bernilai FALSE
+    // Serta memastikan kita hanya mengambil task yang aktif (bukan completed)
     let tasks = globalTasks.filter(t => t.isCompleted === false);
     
     // Sorting logic
     if (dashboardFilter === 'dueDate') {
         tasks.sort((a, b) => {
-            // Task dengan due date terdekat muncul di atas
             const dateA = a.dueDate || Infinity;
             const dateB = b.dueDate || Infinity;
             return dateA - dateB;
@@ -51,7 +50,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
         tasks.sort((a, b) => pMap[b.priority] - pMap[a.priority]);
     }
 
-    return tasks.slice(0, 8); // Batasi 8 task teratas untuk performa
+    return tasks.slice(0, 8); // Menampilkan 8 task teratas
   }, [globalTasks, dashboardFilter]);
 
   const getPriorityStyle = (priority: Priority) => {
@@ -67,9 +66,20 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
+  // Helper untuk mencari project yang sesuai agar navigasi tidak error
+  const navigateToTaskProject = (task: Task) => {
+    // Cari berdasarkan ID project atau Nama project
+    const project = projects.find(p => p.id === task.project || p.name === task.project);
+    if (project) {
+        onSelectProject(project);
+    } else {
+        console.warn("Project not found for task:", task.project);
+    }
+  };
+
   return (
     <div className="project-list-view max-w-6xl mx-auto p-8 min-h-screen flex flex-col">
-      {/* Header Utama Workspace */}
+      {/* SECTION 1: HEADER */}
       <div className="project-list-header flex justify-between items-center mb-10">
         <div>
            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
@@ -88,7 +98,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
         </button>
       </div>
 
-      {/* SECTION 1: RECENT TASKS DASHBOARD (Sesuai Sketsa) */}
+      {/* SECTION 2: RECENT TASKS DASHBOARD */}
       <div className="dashboard-container mb-14 bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-700">
         <div className="dashboard-header px-6 py-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/40">
             <div className="flex items-center gap-2.5">
@@ -99,7 +109,6 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             </div>
 
             <div className="dashboard-controls flex items-center gap-4">
-                {/* Dual Filtering: Date vs Priority */}
                 <div className="flex bg-gray-200/50 p-1 rounded-xl border border-gray-200/50">
                     <button 
                         onClick={() => setDashboardFilter('dueDate')}
@@ -117,7 +126,6 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
 
                 <div className="w-px h-8 bg-gray-200"></div>
 
-                {/* View Mode Switcher: Board vs List */}
                 <div className="flex bg-gray-200/50 p-1 rounded-xl border border-gray-200/50">
                     <button 
                         onClick={() => setDashboardView('grid')}
@@ -149,15 +157,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         {sortedDashboardTasks.map(task => (
                             <div 
                                 key={task.id} 
-                                onClick={() => {
-                                    const proj = projects.find(p => p.name === task.project || p.id === task.project);
-                                    if (proj) onSelectProject(proj);
-                                    else {
-                                        // Fallback if name is used as project label
-                                        const pByName = projects.find(p => p.name === task.project);
-                                        if (pByName) onSelectProject(pByName);
-                                    }
-                                }}
+                                onClick={() => navigateToTaskProject(task)}
                                 className="group relative bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-blue-300 transition-all cursor-pointer flex flex-col h-full ring-1 ring-transparent hover:ring-blue-100"
                             >
                                 <div className="flex justify-between items-start mb-3">
@@ -207,10 +207,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         {sortedDashboardTasks.map(task => (
                             <div 
                                 key={task.id}
-                                onClick={() => {
-                                    const proj = projects.find(p => p.name === task.project);
-                                    if (proj) onSelectProject(proj);
-                                }}
+                                onClick={() => navigateToTaskProject(task)}
                                 className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group"
                             >
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -262,7 +259,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
         </div>
       </div>
 
-      {/* SECTION 2: BOARDS / PROJECTS */}
+      {/* SECTION 3: BOARDS / PROJECTS */}
       <div className="flex-1">
         <div className="section-title flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
