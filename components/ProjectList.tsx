@@ -375,6 +375,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                <a href="https://instagram.com/dezuhan" target="_blank" className="hover:text-pink-600 transition-all transform hover:scale-125"><Instagram size={22} /></a>
                <a href="https://github.com/dezuhan" target="_blank" className="hover:text-gray-900 transition-all transform hover:scale-125"><Github size={22} /></a>
                <a href="https://linkedin.com/in/dzuhan" target="_blank" className="hover:text-blue-700 transition-all transform hover:scale-125"><Linkedin size={22} /></a>
+               <a href="https://vgen.co/dezuhan" target="_blank" className="opacity-35 hover:opacity-100 transition-all transform hover:scale-125"><img src="https://help.vgen.co/hc/article_attachments/13004249258519" alt="VGen" width={28} height={28} /></a>
                <div className="w-px h-6 bg-gray-200 mx-2"></div>
                <a href="https://buymeacoffee.com/dezuhan" target="_blank" className="flex items-center gap-2 bg-[#FF5E5B] text-white px-5 py-2 rounded-full hover:bg-[#ff4642] transition-all shadow-md hover:shadow-xl font-bold text-sm transform hover:-translate-y-1">
                   <Coffee size={18} fill="currentColor" />
