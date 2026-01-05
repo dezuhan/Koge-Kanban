@@ -14,7 +14,7 @@ app.use(express.json({ limit: '10mb' }));
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost', 
   user: process.env.DB_USER || 'root', 
-  password: process.env.DB_PASSWORD || '812067',
+  password: process.env.DB_PASSWORD || '',
   connectionLimit: 5
 };
 
