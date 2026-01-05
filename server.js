@@ -3,6 +3,7 @@ import mariadb from 'mariadb';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import 'dotenv/config';
 
 const app = express();
 const PORT = 3000;
@@ -14,7 +15,7 @@ app.use(express.json({ limit: '10mb' }));
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost', 
   user: process.env.DB_USER || 'root', 
-  password: process.env.DB_PASSWORD || '812067',
+  password: process.env.DB_PASSWORD,
   connectionLimit: 5
 };
 
