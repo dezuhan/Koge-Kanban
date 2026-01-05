@@ -19,7 +19,12 @@ interface BoardViewProps {
   onColumnMove: (activeId: string, overId: string) => void;
   onAddTask: (columnId: string) => void;
   prioritySettings: PrioritySettings;
+  isDragEnabled?: boolean;
 }
+
+type ActiveDragItem = 
+  | { type: 'Column'; column: Column }
+  | { type: 'Task'; task: Task };
 
 const SortableColumn = ({ 
     column, 
@@ -34,9 +39,9 @@ const SortableColumn = ({
 }: { 
     column: Column, 
     tasks: Task[], 
-    onEditTask: any, 
-    onDeleteTask: any, 
-    onToggleCheck: any, 
+    onEditTask: (task: Task) => void, 
+    onDeleteTask: (id: string) => void, 
+    onToggleCheck: (id: string) => void, 
     prioritySettings: PrioritySettings,
     onEditColumn: (c: Column) => void,
     onDeleteColumn: (id: string) => void,
@@ -147,14 +152,15 @@ const BoardView: React.FC<BoardViewProps> = ({
     onDeleteTask, 
     onToggleCheck, 
     onAddColumn, 
-    onEditColumn, 
-    onDeleteColumn, 
-    onColumnMove, 
+    onEditColumn,
+    onDeleteColumn,
+    onColumnMove,
     onAddTask,
-    prioritySettings 
+    prioritySettings,
+    isDragEnabled = true
 }) => {
   const [activeId, setActiveId] = React.useState<string | null>(null);
-  const [activeItem, setActiveItem] = React.useState<any>(null);
+  const [activeItem, setActiveItem] = React.useState<ActiveDragItem | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -165,9 +171,10 @@ const BoardView: React.FC<BoardViewProps> = ({
   );
 
   const handleDragStart = (event: DragStartEvent) => {
+    if (!isDragEnabled) return;
     setActiveId(event.active.id as string);
     if (event.active.data.current) {
-        setActiveItem(event.active.data.current);
+        setActiveItem(event.active.data.current as ActiveDragItem);
     }
   };
 
@@ -254,8 +261,8 @@ const BoardView: React.FC<BoardViewProps> = ({
       </div>
 
       <DragOverlay dropAnimation={dropAnimation}>
-        {activeId ? (
-            activeItem?.type === 'Column' ? (
+        {activeId && activeItem ? (
+            activeItem.type === 'Column' ? (
                 <div className="flex flex-col h-[500px] w-80 rounded-xl bg-white shadow-xl opacity-90 border-2 border-blue-500 p-3">
                      <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: activeItem.column.color }}></span>
@@ -265,7 +272,7 @@ const BoardView: React.FC<BoardViewProps> = ({
             ) : (
                 <div className="transform rotate-3 cursor-grabbing">
                     <TaskCard 
-                        task={activeItem?.task} 
+                        task={activeItem.task} 
                         onEdit={() => {}} 
                         onDelete={() => {}} 
                         onToggleCheck={() => {}} 

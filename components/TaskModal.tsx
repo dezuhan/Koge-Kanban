@@ -1,34 +1,116 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Task, Priority, SubTask, Column } from '../types';
-import { X, Plus, Trash2, CheckSquare, Square, Calendar, Image as ImageIcon, Link as LinkIcon, Upload, User } from 'lucide-react';
+import { X, Calendar, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import ConfirmModal from './ConfirmModal';
+import { SubTaskList } from './task-modal/SubTaskList';
+import { MediaUploader } from './task-modal/MediaUploader';
 
 interface TaskModalProps {
+  /** Whether the modal is visible */
   isOpen: boolean;
+  /** Function to close the modal */
   onClose: () => void;
+  /** Function to handle saving the task (create or update) */
   onSave: (task: Omit<Task, 'id' | 'createdAt'> | Task) => void;
+  /** The task object to edit (null if creating a new task) */
   initialTask?: Task | null;
+  /** List of available columns for the status dropdown */
   columns: Column[];
+  /** Default status ID for new tasks */
   defaultStatus?: string;
+  /** Name of the current project context */
+  currentProjectName?: string; 
 }
 
-const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus }) => {
+/**
+ * TaskModal Component
+ * Modal for creating and editing tasks.
+ * Supports:
+ * - Rich text description
+ * - Subtasks
+ * - Media attachments
+ * - Priority, Due Date, Assignee, etc.
+ */
+const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus, currentProjectName }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<string>('');
   const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
   const [category, setCategory] = useState('General');
-  const [project, setProject] = useState('Main Project');
-  const [assignee, setAssignee] = useState('');
+    const [project, setProject] = useState(''); // Will be set in useEffect
+    const [assignee, setAssignee] = useState('');
   const [isCompleted, setIsCompleted] = useState(false);
   const [dueDate, setDueDate] = useState<string>(''); 
   const [media, setMedia] = useState<string>('');
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
-  const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
   
   // Changed default to 'preview' as requested
   const [descTab, setDescTab] = useState<'write' | 'preview'>('preview');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Track changes to form fields to set isDirty
+  useEffect(() => {
+    if (!isOpen) {
+        setIsDirty(false);
+        return;
+    }
+    
+    // Check if current state differs from initialTask or default values
+    const checkDirty = () => {
+        if (initialTask) {
+            const isModified = 
+                title !== initialTask.title ||
+                description !== initialTask.description ||
+                status !== initialTask.status ||
+                priority !== initialTask.priority ||
+                category !== initialTask.category ||
+                project !== initialTask.project ||
+                assignee !== (initialTask.assignee || '') ||
+                isCompleted !== initialTask.isCompleted ||
+                (dueDate ? new Date(dueDate).toISOString().split('T')[0] : '') !== (initialTask.dueDate ? new Date(initialTask.dueDate).toISOString().split('T')[0] : '') ||
+                media !== (initialTask.media || '') ||
+                JSON.stringify(subTasks) !== JSON.stringify(initialTask.subTasks || []);
+            setIsDirty(isModified);
+        } else {
+            // New task - check if any field has content
+            const hasContent = 
+                title !== '' ||
+                description !== '' ||
+                (assignee !== '') ||
+                (dueDate !== '') ||
+                (media !== '') ||
+                subTasks.length > 0;
+            setIsDirty(hasContent);
+        }
+    };
+    checkDirty();
+  }, [title, description, status, priority, category, project, assignee, isCompleted, dueDate, media, subTasks, initialTask, isOpen]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        // If a modal is already open (like discard confirm), don't do anything here
+        // or let the top-most modal handle it.
+        // But since ConfirmModal is inside this component, we can manage it.
+        if (showDiscardConfirm) {
+            setShowDiscardConfirm(false); // Close confirm modal on ESC
+            return;
+        }
+
+        if (isDirty) {
+            setShowDiscardConfirm(true);
+        } else {
+            onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isDirty, showDiscardConfirm, onClose]);
 
   useEffect(() => {
     if (initialTask) {
@@ -48,24 +130,31 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     } else {
       resetForm();
     }
-  }, [initialTask, isOpen, columns, defaultStatus]);
+  }, [initialTask, isOpen, columns, defaultStatus, currentProjectName]);
 
+  /**
+   * Resets the form to default values for a new task.
+   */
   const resetForm = () => {
     setTitle('');
     setDescription('');
     setStatus(defaultStatus || (columns.length > 0 ? columns[0].id : ''));
     setPriority(Priority.MEDIUM);
     setCategory('General');
-    setProject('Main Project');
+    setProject(currentProjectName || 'Main Project');
     setAssignee('');
     setIsCompleted(false);
     setDueDate('');
     setMedia('');
     setSubTasks([]);
-    setNewSubTaskTitle('');
     setDescTab('preview');
   };
 
+  /**
+   * Handles form submission to save the task.
+   * Compiles the task object and calls the onSave prop.
+   * @param e Form event
+   */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const taskData = {
@@ -86,49 +175,42 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     onClose();
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 8 * 1024 * 1024) { // 8MB limit to be safe with 10MB server limit
-          alert("Image is too large. Please upload an image smaller than 8MB.");
-          return;
+  /**
+   * Handles request to close the modal.
+   * Checks for unsaved changes and prompts confirmation if needed.
+   */
+  const handleCloseRequest = () => {
+      if (isDirty) {
+          setShowDiscardConfirm(true);
+      } else {
+          onClose();
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setMedia(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
-  const addSubTask = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!newSubTaskTitle.trim()) return;
-    const newTask: SubTask = {
-        id: crypto.randomUUID(),
-        title: newSubTaskTitle,
-        isCompleted: false
-    };
-    setSubTasks([...subTasks, newTask]);
-    setNewSubTaskTitle('');
-  };
-
-  const toggleSubTask = (id: string) => {
-      setSubTasks(subTasks.map(st => st.id === id ? { ...st, isCompleted: !st.isCompleted } : st));
-  };
-
-  const deleteSubTask = (id: string) => {
-      setSubTasks(subTasks.filter(st => st.id !== id));
+  /**
+   * Handles confirmation to discard changes.
+   * Resets dirty state and closes the modal.
+   */
+  const handleConfirmDiscard = () => {
+      setShowDiscardConfirm(false);
+      setIsDirty(false); // Reset dirty state
+      onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="task-modal fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <>
+    <div className="task-modal fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => {
+        // Close on backdrop click if not dirty, or ask confirmation
+        if (e.target === e.currentTarget) {
+            handleCloseRequest();
+        }
+    }}>
       <div className="task-modal-container bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
         <div className="task-modal-header flex justify-between items-center p-4 border-b border-gray-100 bg-white sticky top-0 z-10">
           <h2 className="text-xl font-bold text-gray-800">{initialTask ? 'Edit Task' : 'New Task'}</h2>
-          <button onClick={onClose} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
+          <button onClick={handleCloseRequest} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
             <X size={20} />
           </button>
         </div>
@@ -224,58 +306,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
           </div>
 
           {/* Media Input */}
-          <div className="form-group">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Media (Link or Image)</label>
-            <div className="flex flex-col gap-2">
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <LinkIcon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            value={media}
-                            onChange={(e) => setMedia(e.target.value)}
-                            placeholder="https://example.com/image.png"
-                            className="input-media w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                    </div>
-                    <input 
-                        type="file" 
-                        ref={fileInputRef}
-                        accept="image/*"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                    />
-                    <button 
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="btn-upload bg-gray-100 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-200 transition flex items-center gap-2"
-                        title="Upload Image"
-                    >
-                        <Upload size={18} /> <span className="hidden sm:inline">Upload</span>
-                    </button>
-                </div>
-                {media && (
-                    <div className="media-preview relative mt-2 w-full h-32 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden flex items-center justify-center group">
-                         {/* Simple check if it looks like an image, otherwise generic preview */}
-                         {media.match(/\.(jpeg|jpg|gif|png|webp)|data:image/i) ? (
-                             <img src={media} alt="Preview" className="h-full w-full object-contain" />
-                         ) : (
-                             <div className="text-gray-400 flex flex-col items-center gap-1">
-                                 <ImageIcon size={24} />
-                                 <span className="text-xs">Media Link Preview</span>
-                             </div>
-                         )}
-                         <button 
-                            type="button"
-                            onClick={() => setMedia('')}
-                            className="btn-remove-media absolute top-1 right-1 bg-white/80 p-1 rounded-full text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                         >
-                             <Trash2 size={16} />
-                         </button>
-                    </div>
-                )}
-            </div>
-          </div>
+          <MediaUploader media={media} onChange={setMedia} />
 
           {/* Description */}
           <div className="form-group">
@@ -323,46 +354,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
           </div>
           
           {/* Subtasks */}
-          <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Subtasks</label>
-              <div className="subtask-container bg-gray-50 rounded-lg p-3 border border-gray-200 space-y-2">
-                  <div className="flex gap-2 mb-3">
-                      <input 
-                        type="text" 
-                        value={newSubTaskTitle}
-                        onChange={(e) => setNewSubTaskTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addSubTask(e)}
-                        placeholder="Add a subtask..."
-                        className="input-subtask flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <button 
-                        type="button" 
-                        onClick={addSubTask}
-                        disabled={!newSubTaskTitle.trim()}
-                        className="btn-add-subtask bg-blue-600 text-white p-1.5 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                      >
-                          <Plus size={18} />
-                      </button>
-                  </div>
-                  
-                  <div className="subtask-list space-y-1 max-h-40 overflow-y-auto">
-                      {subTasks.map(st => (
-                          <div key={st.id} className="subtask-item flex items-center gap-2 group p-1 hover:bg-gray-100 rounded">
-                                <button type="button" onClick={() => toggleSubTask(st.id)} className="btn-toggle-subtask text-gray-400 hover:text-blue-600">
-                                    {st.isCompleted ? <CheckSquare size={16} className="text-blue-600"/> : <Square size={16} />}
-                                </button>
-                                <span className={`flex-1 text-sm ${st.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                                    {st.title}
-                                </span>
-                                <button type="button" onClick={() => deleteSubTask(st.id)} className="btn-delete-subtask text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Trash2 size={14} />
-                                </button>
-                          </div>
-                      ))}
-                      {subTasks.length === 0 && <p className="text-xs text-gray-400 text-center py-2">No subtasks yet.</p>}
-                  </div>
-              </div>
-          </div>
+          <SubTaskList subTasks={subTasks} onChange={setSubTasks} />
 
           <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
              <input 
@@ -379,7 +371,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         <div className="task-modal-footer flex justify-end p-4 border-t border-gray-100 bg-gray-50 gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseRequest}
               className="btn-cancel px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
             >
               Cancel
@@ -393,6 +385,15 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
           </div>
       </div>
     </div>
+    
+    <ConfirmModal
+        isOpen={showDiscardConfirm}
+        onClose={() => setShowDiscardConfirm(false)}
+        onConfirm={handleConfirmDiscard}
+        title="Discard Changes?"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+    />
+    </>
   );
 };
 
