@@ -728,7 +728,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 </div>
             ) : (
                 <div 
-                    className="desc-preview w-full rounded-lg border border-transparent px-4 py-3 h-[500px] overflow-y-auto bg-gray-50/50 prose prose-sm prose-blue max-w-none transition-all relative group"
+                    className="desc-preview w-full rounded-lg border border-gray-100 px-4 py-3 h-[500px] overflow-y-auto bg-gray-50/50 prose prose-sm prose-blue max-w-none transition-all relative group"
                 >
                      <button
                         type="button"
