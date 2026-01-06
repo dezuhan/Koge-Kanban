@@ -1,14 +1,39 @@
-# Tahap 1: Build React App
+# Stage 1: Build the React Application
 FROM node:18-alpine as build
+
 WORKDIR /app
+
+# Copy package files
 COPY package*.json ./
+
+# Install dependencies including devDependencies for build
 RUN npm install
+
+# Copy source code
 COPY . .
+
+# Build the React app
 RUN npm run build
 
-# Tahap 2: Setup Server (Nginx) biar ringan
-FROM nginx:alpine
-# Catatan: Kalau projectmu pakai CRA (bukan Vite), ganti 'dist' jadi 'build' di bawah ini
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Stage 2: Setup the Node.js Server
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm install --omit=dev
+
+# Copy the built frontend from the previous stage
+COPY --from=build /app/dist ./dist
+
+# Copy the server file
+COPY server.js .
+
+# Expose the port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]

@@ -232,6 +232,8 @@ app.delete('/api/data/:key', async (req, res) => {
 
 // --- AI Integration (Ollama) ---
 
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+
 /**
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
@@ -242,7 +244,7 @@ app.get('/api/ai/models', async (req, res) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2000);
         
-        const response = await fetch('http://127.0.0.1:11434/api/tags', { 
+        const response = await fetch(`${OLLAMA_HOST}/api/tags`, { 
             signal: controller.signal 
         });
         clearTimeout(timeoutId);
@@ -271,7 +273,7 @@ app.post('/api/ai/generate', async (req, res) => {
     try {
         // 1. Check if Ollama is reachable (optional fast check)
         try {
-            const check = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(1000) });
+            const check = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1000) });
             if (!check.ok) throw new Error("Ollama not ready");
         } catch (e) {
             return res.status(503).json({ error: "Ollama service is offline or unreachable." });
@@ -289,7 +291,7 @@ app.post('/api/ai/generate', async (req, res) => {
             requestBody.options = options;
         }
 
-        const ollamaRes = await fetch('http://127.0.0.1:11434/api/generate', {
+        const ollamaRes = await fetch(`${OLLAMA_HOST}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)

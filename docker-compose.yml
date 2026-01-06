@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=mysecretpassword
+      # If using Docker Desktop, use host.docker.internal to access Ollama on host
+      # Linux users might need to use the host IP (e.g., 172.17.0.1)
+      - OLLAMA_HOST=http://host.docker.internal:11434 
+    depends_on:
+      - db
+    restart: always
+
+  db:
+    image: mariadb:10.6
+    environment:
+      - MARIADB_ROOT_PASSWORD=mysecretpassword
+      - MARIADB_DATABASE=koge_kanban
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    restart: always
+
+volumes:
+  mariadb_data:
+
