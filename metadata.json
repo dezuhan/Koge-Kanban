@@ -1,0 +1,5 @@
+{
+  "name": "Koge Kanban",
+  "description": "A streamlined Kanban board featuring drag-and-drop management, table views, and project organization.",
+  "requestFramePermissions": []
+}

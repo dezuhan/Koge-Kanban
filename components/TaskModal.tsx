@@ -1,0 +1,801 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Task, Priority, SubTask, Column } from '../types';
+import { X, Calendar, User, Sparkles, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import ConfirmModal from './ConfirmModal';
+import { SubTaskList } from './task-modal/SubTaskList';
+import { MediaUploader } from './task-modal/MediaUploader';
+import { useApp } from '../context/AppContext';
+
+interface TaskModalProps {
+  /** Whether the modal is visible */
+  isOpen: boolean;
+  /** Function to close the modal */
+  onClose: () => void;
+  /** Function to handle saving the task (create or update) */
+  onSave: (task: Omit<Task, 'id' | 'createdAt'> | Task) => void;
+  /** The task object to edit (null if creating a new task) */
+  initialTask?: Task | null;
+  /** List of available columns for the status dropdown */
+  columns: Column[];
+  /** Default status ID for new tasks */
+  defaultStatus?: string;
+  /** Name of the current project context */
+  currentProjectName?: string; 
+}
+
+/**
+ * TaskModal Component
+ * Modal for creating and editing tasks.
+ * Supports:
+ * - Rich text description
+ * - Subtasks
+ * - Media attachments
+ * - Priority, Due Date, Assignee, etc.
+ */
+const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus, currentProjectName }) => {
+  const { isAIEnabled, disableAI, activeModel } = useApp();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [status, setStatus] = useState<string>('');
+  const [priority, setPriority] = useState<Priority>(Priority.MEDIUM);
+  const [category, setCategory] = useState('General');
+    const [project, setProject] = useState(''); // Will be set in useEffect
+    const [assignee, setAssignee] = useState('');
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [dueDate, setDueDate] = useState<string>(''); 
+  const [media, setMedia] = useState<string[]>([]);
+  const [subTasks, setSubTasks] = useState<SubTask[]>([]);
+  
+  const [showAIContext, setShowAIContext] = useState(false);
+  const [userInstructions, setUserInstructions] = useState('');
+  const [aiThinking, setAiThinking] = useState<string | null>(null);
+
+  // Undo/Redo history for description
+  const [descHistory, setDescHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+
+  // View vs Edit Mode
+  const [isEditingDesc, setIsEditingDesc] = useState(false);
+  
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [isAILoading, setIsAILoading] = useState(false);
+
+  // Track changes to form fields to set isDirty
+  useEffect(() => {
+    if (!isOpen) {
+        setIsDirty(false);
+        return;
+    }
+    
+    // Check if current state differs from initialTask or default values
+    const checkDirty = () => {
+        if (initialTask) {
+            const isModified = 
+                title !== initialTask.title ||
+                description !== initialTask.description ||
+                status !== initialTask.status ||
+                priority !== initialTask.priority ||
+                category !== initialTask.category ||
+                project !== initialTask.project ||
+                assignee !== (initialTask.assignee || '') ||
+                isCompleted !== initialTask.isCompleted ||
+                (dueDate ? new Date(dueDate).toISOString().split('T')[0] : '') !== (initialTask.dueDate ? new Date(initialTask.dueDate).toISOString().split('T')[0] : '') ||
+                JSON.stringify(media) !== JSON.stringify(initialTask.media || []) ||
+                JSON.stringify(subTasks) !== JSON.stringify(initialTask.subTasks || []);
+            setIsDirty(isModified);
+        } else {
+            // New task - check if any field has content
+            const hasContent = 
+                title !== '' ||
+                description !== '' ||
+                (assignee !== '') ||
+                (dueDate !== '') ||
+                (media.length > 0) ||
+                subTasks.length > 0;
+            setIsDirty(hasContent);
+        }
+    };
+    checkDirty();
+  }, [title, description, status, priority, category, project, assignee, isCompleted, dueDate, media, subTasks, initialTask, isOpen]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        // If a modal is already open (like discard confirm), don't do anything here
+        // or let the top-most modal handle it.
+        // But since ConfirmModal is inside this component, we can manage it.
+        if (showDiscardConfirm) {
+            setShowDiscardConfirm(false); // Close confirm modal on ESC
+            return;
+        }
+
+        if (isDirty) {
+            setShowDiscardConfirm(true);
+        } else {
+            onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isDirty, showDiscardConfirm, onClose]);
+
+  const prevIsOpen = useRef(false);
+
+  useEffect(() => {
+    // Only run initialization when opening the modal (false -> true transition)
+    // or when the specific task ID changes while open (switching tasks)
+    const isOpening = isOpen && !prevIsOpen.current;
+    
+    // Check if task ID changed while already open
+    const isSwitchingTask = isOpen && prevIsOpen.current && initialTask && (initialTask.id !== (prevIsOpen.current as any)?.id); 
+
+    if (isOpening || isSwitchingTask) {
+        if (initialTask) {
+          setTitle(initialTask.title);
+          setDescription(initialTask.description);
+          setStatus(initialTask.status);
+          setPriority(initialTask.priority);
+          setCategory(initialTask.category);
+          setProject(initialTask.project);
+          setAssignee(initialTask.assignee || '');
+          setIsCompleted(initialTask.isCompleted);
+          setDueDate(initialTask.dueDate ? new Date(initialTask.dueDate).toISOString().split('T')[0] : '');
+          
+          let initMedia: string[] = [];
+          if (initialTask.media) {
+              if (Array.isArray(initialTask.media)) {
+                  initMedia = initialTask.media;
+              } else if (typeof initialTask.media === 'string') {
+                  initMedia = [initialTask.media];
+              }
+          }
+          setMedia(initMedia);
+          
+          setSubTasks(initialTask.subTasks || []);
+          
+          setIsEditingDesc(!initialTask.description);
+          
+          if (initialTask.description) {
+              setDescHistory([initialTask.description]);
+              setHistoryIndex(0);
+          }
+        } else {
+          resetForm();
+        }
+    }
+    
+    prevIsOpen.current = isOpen;
+  }, [initialTask, isOpen, columns, defaultStatus, currentProjectName]);
+
+  /**
+   * Resets the form to default values for a new task.
+   */
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setStatus(defaultStatus || (columns.length > 0 ? columns[0].id : ''));
+    setPriority(Priority.MEDIUM);
+    setCategory('General');
+    setProject(currentProjectName || 'Main Project');
+    setAssignee('');
+    setIsCompleted(false);
+    setDueDate('');
+    setMedia([]);
+    setSubTasks([]);
+    setIsEditingDesc(true); // New tasks start in edit mode
+    setDescHistory([]);
+    setHistoryIndex(-1);
+  };
+
+  /**
+   * Handles form submission to save the task.
+   * Compiles the task object and calls the onSave prop.
+   * @param e Form event
+   */
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const taskData = {
+      ...(initialTask ? { id: initialTask.id, createdAt: initialTask.createdAt } : {}),
+      title,
+      description,
+      status,
+      priority,
+      category,
+      project,
+      assignee,
+      isCompleted,
+      dueDate: dueDate ? new Date(dueDate).getTime() : null,
+      media,
+      subTasks,
+    };
+    onSave(taskData as Task);
+    onClose();
+  };
+
+  /**
+   * Handles request to close the modal.
+   * Checks for unsaved changes and prompts confirmation if needed.
+   */
+  const handleCloseRequest = () => {
+      if (isDirty) {
+          setShowDiscardConfirm(true);
+      } else {
+          onClose();
+      }
+  };
+
+  /**
+   * Handles confirmation to discard changes.
+   * Resets dirty state and closes the modal.
+   */
+  const handleConfirmDiscard = () => {
+      setShowDiscardConfirm(false);
+      setIsDirty(false); // Reset dirty state
+      onClose();
+  };
+
+  // Helper to update description and push to history
+  const updateDescriptionWithHistory = (newDesc: string) => {
+      const current = descHistory[historyIndex] || '';
+      if (newDesc !== current) {
+          const newHistory = descHistory.slice(0, historyIndex + 1);
+          newHistory.push(newDesc);
+          setDescHistory(newHistory);
+          setHistoryIndex(newHistory.length - 1);
+          setDescription(newDesc);
+      }
+  };
+
+  const handleUndo = () => {
+      if (historyIndex > 0) {
+          const newIndex = historyIndex - 1;
+          setHistoryIndex(newIndex);
+          setDescription(descHistory[newIndex]);
+      }
+  };
+
+  const handleRedo = () => {
+      if (historyIndex < descHistory.length - 1) {
+          const newIndex = historyIndex + 1;
+          setHistoryIndex(newIndex);
+          setDescription(descHistory[newIndex]);
+      }
+  };
+
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setDescription(e.target.value);
+  };
+  
+  const handleDescriptionBlur = () => {
+      // Push to history on blur to avoid too many updates while typing
+      updateDescriptionWithHistory(description);
+  };
+
+  // Helper to insert markdown at cursor position
+  const insertMarkdown = useCallback((symbol: string, mode: 'wrap' | 'block' = 'wrap') => {
+      if (!textareaRef.current) return;
+
+      const textarea = textareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      
+      let newText = '';
+      let newCursorPos = 0;
+
+      if (mode === 'wrap') {
+          const selectedText = text.substring(start, end);
+          const before = text.substring(0, start);
+          const after = text.substring(end);
+          newText = `${before}${symbol}${selectedText}${symbol}${after}`;
+          newCursorPos = end + (symbol.length * 2);
+          
+          // If no selection, put cursor inside symbols
+          if (start === end) {
+              newCursorPos = start + symbol.length;
+          }
+      } else if (mode === 'block') {
+          // Find start of current line
+          const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+          const before = text.substring(0, lineStart);
+          const after = text.substring(lineStart);
+          newText = `${before}${symbol} ${after}`;
+          newCursorPos = start + symbol.length + 1;
+      }
+
+      setDescription(newText);
+      
+      // Need to defer cursor setting to after render
+      requestAnimationFrame(() => {
+          if (textareaRef.current) {
+              textareaRef.current.focus();
+              textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+          }
+      });
+      
+      // Update history immediately for formatting actions
+      updateDescriptionWithHistory(newText);
+  }, [description, descHistory, historyIndex]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.ctrlKey || e.metaKey) {
+          switch (e.key.toLowerCase()) {
+              case 'b':
+                  e.preventDefault();
+                  insertMarkdown('**');
+                  break;
+              case 'i':
+                  e.preventDefault();
+                  insertMarkdown('*');
+                  break;
+              // Strikethrough (Ctrl+Shift+X or similar often used, let's use Ctrl+S or Ctrl+X? Ctrl+S is save. Let's use Ctrl+Shift+S)
+              case 's':
+                  if (e.shiftKey) {
+                      e.preventDefault();
+                      insertMarkdown('~~');
+                  }
+                  break;
+          }
+      }
+  };
+
+  const handleReformatMarkdown = async () => {
+      if (!description) {
+          alert("Please enter some text to format first.");
+          return;
+      }
+      
+      setIsAILoading(true);
+      setAiThinking(null);
+      try {
+          const prompt = `Act as a Strict Markdown Formatter.
+          
+          Input Text:
+          """
+          ${description}
+          """
+
+          STRICT INSTRUCTIONS:
+          1. **DO NOT CHANGE THE CONTENT**: You are forbidden from adding, removing, or rephrasing words. The text must remain word-for-word identical to the input, except for the addition of Markdown syntax.
+          2. **ADD MARKDOWN ONLY**: Add '#' for headers, '-' for lists, '**' for bolding key terms, and other Markdown symbols where appropriate based on the context.
+          3. **STRUCTURE**: Infer the logical structure (headers, lists) from the input text.
+          4. **LANGUAGE**: Keep the original language exactly as is.
+
+          PROCESS:
+          1. Analyze the structure in <think> tags.
+          2. Output the formatted markdown.`;
+
+          const response = await fetch('http://localhost:3000/api/ai/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt, model: activeModel })
+          });
+
+          if (!response.ok) {
+              const err = await response.json();
+              throw new Error(err.error || "Failed to generate");
+          }
+
+          const data = await response.json();
+          if (data.response) {
+              let newContent = data.response;
+              
+              // Extract thinking process if available
+              const thinkMatch = newContent.match(/<think>([\s\S]*?)<\/think>/);
+              if (thinkMatch) {
+                  setAiThinking(thinkMatch[1].trim());
+                  newContent = newContent.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+              }
+
+              updateDescriptionWithHistory(newContent);
+              setIsEditingDesc(true); 
+              setShowAIContext(false);
+              setUserInstructions('');
+          }
+      } catch (error: any) {
+          console.error("AI Error:", error);
+          disableAI();
+          alert("AI Service disconnected. Feature disabled.");
+      } finally {
+          setIsAILoading(false);
+      }
+  };
+
+  const handleGenerateDescription = async () => {
+      if (!title) {
+          alert("Please enter a title first to give the AI some context.");
+          return;
+      }
+      
+      setIsAILoading(true);
+      setAiThinking(null);
+      try {
+          // Construct a prompt based on title and existing description
+          const prompt = `Role: Task Management Assistant.
+
+          Context:
+          - Title: "${title}"
+          ${description ? `- Existing Content: """${description}"""` : ''}
+          ${userInstructions ? `- User Instruction: """${userInstructions}"""` : ''}
+
+          STRICT RULES:
+          1. **FOLLOW INSTRUCTIONS:** If "User Instruction" is provided, follow it exactly.
+          2. **NO UNSOLICITED REFINEMENT:** If the user DOES NOT explicitly ask to "refine", "rewrite", "improve", or "change" the existing content, **YOU MUST NOT CHANGE THE ORIGINAL WORDING**. 
+             - You may only apply Markdown formatting (headers, lists).
+             - You may add requested sections (e.g. "Add Acceptance Criteria") while keeping the original text identical.
+          3. **GENERATION:** Only generate new creative content if "Existing Content" is empty OR if the "User Instruction" asks for it.
+
+          PROCESS:
+          1. Plan in <think> tags.
+          2. Output the result.`;
+
+          const response = await fetch('http://localhost:3000/api/ai/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt, model: activeModel })
+          });
+
+          if (!response.ok) {
+              const err = await response.json();
+              throw new Error(err.error || "Failed to generate");
+          }
+
+          const data = await response.json();
+          if (data.response) {
+              let newContent = data.response;
+              
+              // Extract thinking process if available
+              const thinkMatch = newContent.match(/<think>([\s\S]*?)<\/think>/);
+              if (thinkMatch) {
+                  setAiThinking(thinkMatch[1].trim());
+                  newContent = newContent.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+              }
+
+              // Push old description to history before replacing if it's not empty and different
+              updateDescriptionWithHistory(newContent);
+              
+              setIsEditingDesc(true); // Switch to edit mode to show result
+              setShowAIContext(false);
+              setUserInstructions('');
+          }
+      } catch (error: any) {
+          console.error("AI Error:", error);
+          disableAI();
+          alert("AI Service disconnected. Feature disabled.");
+      } finally {
+          setIsAILoading(false);
+      }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+    <div className="task-modal fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => {
+        // Close on backdrop click if not dirty, or ask confirmation
+        if (e.target === e.currentTarget) {
+            handleCloseRequest();
+        }
+    }}>
+      <div className="task-modal-container bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        <div className="task-modal-header flex justify-between items-center p-4 border-b border-gray-100 bg-white sticky top-0 z-10">
+          <h2 className="text-xl font-bold text-gray-800">{initialTask ? 'Edit Task' : 'New Task'}</h2>
+          <button onClick={handleCloseRequest} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="task-modal-form flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Title */}
+          <div className="form-group">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <div className="flex gap-2">
+              <input
+                required
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="e.g., Fix login bug"
+              />
+            </div>
+          </div>
+
+          {/* Grid fields */}
+          <div className="form-grid grid grid-cols-1 md:grid-cols-2 gap-4">
+             <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+              <input
+                type="text"
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                className="input-project w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+              <input
+                type="text"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="input-category w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            
+             <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assign To</label>
+              <div className="relative">
+                  <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    className="input-assignee w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. John Doe"
+                  />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <div className="relative">
+                  <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="input-due-date w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="input-status w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {columns.map((col) => (
+                  <option key={col.id} value={col.id}>{col.title}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Priority)}
+                className="input-priority w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {Object.values(Priority).map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Media Input */}
+          <MediaUploader media={media} onChange={setMedia} />
+
+          {/* Description */}
+          <div className="form-group">
+            <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <div className="flex gap-2">
+                    {isAIEnabled && (
+                        <button
+                            type="button"
+                            onClick={() => setShowAIContext(!showAIContext)}
+                            className={`flex items-center gap-1 text-xs px-3 py-1 rounded-md transition-colors disabled:opacity-50 ${showAIContext ? 'bg-purple-200 text-purple-800' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'}`}
+                            title="Generate description with AI"
+                        >
+                            <Sparkles size={12} />
+                            AI Assist
+                        </button>
+                    )}
+                    
+                    {/* View/Edit Toggle Button */}
+                    {!isEditingDesc && description && (
+                        <button
+                            type="button"
+                            onClick={() => setIsEditingDesc(true)}
+                            className="flex items-center gap-1 text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                        >
+                            <Edit2 size={12} /> Edit Content
+                        </button>
+                    )}
+                </div>
+            </div>
+            
+            {isAIEnabled && showAIContext && (
+                <div className="mb-2 p-2 bg-purple-50 border border-purple-100 rounded-lg animate-fade-in">
+                    {aiThinking && (
+                        <div className="mb-2 p-2 bg-white/80 border border-purple-100 rounded text-[10px] text-gray-600 max-h-32 overflow-y-auto">
+                            <strong className="block text-purple-700 mb-1">AI Thought Process:</strong>
+                            <div className="whitespace-pre-wrap font-mono">{aiThinking}</div>
+                        </div>
+                    )}
+                    <label className="block text-xs font-medium text-purple-800 mb-1">
+                        AI Instructions / Context:
+                    </label>
+                    <textarea
+                        value={userInstructions}
+                        onChange={(e) => setUserInstructions(e.target.value)}
+                        placeholder="e.g., 'Make it formal', 'Focus on technical details', 'Summarize briefly'..."
+                        className="w-full text-xs p-2 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 min-h-[60px] resize-none mb-2"
+                    />
+                    <div className="flex gap-2">
+                        <button
+                            type="button"
+                            onClick={handleReformatMarkdown}
+                            disabled={isAILoading}
+                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-gray-100 text-gray-700 py-1.5 rounded hover:bg-gray-200 transition-colors disabled:opacity-70 border border-gray-200"
+                            title="Format text to Markdown without changing words"
+                        >
+                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12} />}
+                            Format Only
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleGenerateDescription}
+                            disabled={isAILoading}
+                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-purple-600 text-white py-1.5 rounded hover:bg-purple-700 transition-colors disabled:opacity-70"
+                        >
+                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12} />}
+                            Generate Description
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Display AI Thinking if available and AI context is closed (e.g. after generation) */}
+            {isAIEnabled && !showAIContext && aiThinking && (
+                 <div className="mb-2 p-2 bg-purple-50 border border-purple-100 rounded-lg animate-fade-in text-xs">
+                     <div className="flex justify-between items-center mb-1 cursor-pointer" onClick={() => setAiThinking(null)} title="Dismiss">
+                         <strong className="text-purple-700">AI Thought Process:</strong>
+                         <X size={12} className="text-purple-400 hover:text-purple-700"/>
+                     </div>
+                     <div className="p-2 bg-white/80 border border-purple-100 rounded text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px]">
+                         {aiThinking}
+                     </div>
+                 </div>
+            )}
+
+            {isEditingDesc ? (
+                <div className="relative border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
+                    {/* Toolbar */}
+                    <div className="flex items-center gap-1 p-1 bg-gray-50 border-b border-gray-200 overflow-x-auto">
+                        <button type="button" onClick={() => insertMarkdown('**')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Bold (Ctrl+B)">
+                            <Bold size={14} />
+                        </button>
+                        <button type="button" onClick={() => insertMarkdown('*')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Italic (Ctrl+I)">
+                            <Italic size={14} />
+                        </button>
+                        <button type="button" onClick={() => insertMarkdown('~~')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Strikethrough (Ctrl+Shift+S)">
+                            <Strikethrough size={14} />
+                        </button>
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button type="button" onClick={() => insertMarkdown('#', 'block')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Heading 1">
+                            <Heading size={14} />
+                        </button>
+                        <button type="button" onClick={() => insertMarkdown('-', 'block')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="List Item">
+                            <List size={14} />
+                        </button>
+                        <div className="w-px h-4 bg-gray-300 mx-1"></div>
+                        <button type="button" onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                            <RotateCcw size={14} />
+                        </button>
+                        <button type="button" onClick={handleRedo} disabled={historyIndex >= descHistory.length - 1} className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                            <RotateCw size={14} />
+                        </button>
+                        <div className="flex-1"></div>
+                        <button 
+                            type="button" 
+                            onClick={() => setIsEditingDesc(false)} 
+                            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200 flex items-center gap-1"
+                        >
+                            <Check size={12} /> Done
+                        </button>
+                    </div>
+
+                    <textarea
+                        ref={textareaRef}
+                        value={description}
+                        onChange={handleDescriptionChange}
+                        onBlur={handleDescriptionBlur}
+                        onKeyDown={handleKeyDown}
+                        className="input-desc w-full px-3 py-2 h-[450px] outline-none resize-none font-mono text-sm bg-transparent"
+                        placeholder="Task details... (Markdown shortcuts enabled: **bold**, *italic*)"
+                    />
+                    
+                    {/* AI Loading Overlay */}
+                    {isAILoading && (
+                        <div className="absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-10 animate-in fade-in duration-200">
+                             <div className="flex items-center gap-2 text-purple-600 font-medium mb-2 bg-white px-4 py-2 rounded-full shadow-sm border border-purple-100">
+                                <Loader2 size={20} className="animate-spin" />
+                                <span>AI is refining your content...</span>
+                             </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div 
+                    className="desc-preview w-full rounded-lg border border-transparent px-4 py-3 h-[500px] overflow-y-auto bg-gray-50/50 prose prose-sm prose-blue max-w-none transition-all relative group"
+                >
+                     <button
+                        type="button"
+                        onClick={() => setIsEditingDesc(true)}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded shadow-sm border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 cursor-pointer"
+                        title="Edit Description"
+                     >
+                        <Edit2 size={14} />
+                     </button>
+                     {description ? (
+                         <ReactMarkdown>{description}</ReactMarkdown>
+                     ) : (
+                         <span className="text-gray-400 italic">No description provided. Click the edit icon to add.</span>
+                     )}
+                </div>
+            )}
+          </div>
+          
+          {/* Subtasks */}
+          <SubTaskList 
+            subTasks={subTasks} 
+            onChange={setSubTasks} 
+            parentTaskTitle={title} 
+            parentTaskDescription={description}
+            isAIEnabled={isAIEnabled}
+            onDisableAI={disableAI}
+          />
+
+          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+             <input 
+                type="checkbox" 
+                id="isCompleted" 
+                checked={isCompleted} 
+                onChange={(e) => setIsCompleted(e.target.checked)}
+                className="checkbox-completed w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+             />
+             <label htmlFor="isCompleted" className="text-sm text-gray-700">Mark main task as completed</label>
+          </div>
+        </form>
+        
+        <div className="task-modal-footer flex justify-end p-4 border-t border-gray-100 bg-gray-50 gap-2">
+            <button
+              type="button"
+              onClick={handleCloseRequest}
+              className="btn-cancel px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              className="btn-save px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+            >
+              {initialTask ? 'Save Changes' : 'Create Task'}
+            </button>
+          </div>
+      </div>
+    </div>
+    
+    <ConfirmModal
+        isOpen={showDiscardConfirm}
+        onClose={() => setShowDiscardConfirm(false)}
+        onConfirm={handleConfirmDiscard}
+        title="Discard Changes?"
+        message="You have unsaved changes. Are you sure you want to discard them?"
+    />
+    </>
+  );
+};
+
+export default TaskModal;
