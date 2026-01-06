@@ -463,8 +463,18 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                   <span>Donate</span>
                </a>
             </div>
-            <div className="text-center">
-                <p className="text-[10px] pb-4">© {new Date().getFullYear()} Made with Love by <span className="font-bold text-gray-600">Dezuhan</span></p>
+        
+
+            <div className="text-center flex gap-3 justify-center pb-5">
+                <p className="text-[10px] m-auto">© {new Date().getFullYear()} Made with Love by <span className="font-bold text-gray-600">Dezuhan</span></p>
+                <div className="flex items-center gap-3">
+                <a href="https://github.com/dezuhan/koge-kanban" target="_blank" className="hover:opacity-80 transition-opacity">
+                    <img src="https://img.shields.io/github/stars/dezuhan/koge-kanban?style=social" alt="GitHub stars" />
+                </a>
+                <a href="https://github.com/dezuhan/koge-kanban/fork" target="_blank" className="hover:opacity-80 transition-opacity">
+                    <img src="https://img.shields.io/github/forks/dezuhan/koge-kanban?style=social" alt="GitHub forks" />
+                </a>
+            </div>
             </div>
          </div>
       </footer>
