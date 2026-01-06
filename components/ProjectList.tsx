@@ -474,6 +474,9 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                 <a href="https://github.com/dezuhan/koge-kanban/fork" target="_blank" className="hover:opacity-80 transition-opacity">
                     <img src="https://img.shields.io/github/forks/dezuhan/koge-kanban?style=social" alt="GitHub forks" />
                 </a>
+                <a href="https://github.com/dezuhan/koge-kanban" target="_blank" className="hover:opacity-80 transition-opacity">
+                    <img src="https://img.shields.io/badge/license-MIT-silver?style=social" alt="GitHub stars" />
+                </a>
             </div>
             </div>
          </div>
