@@ -95,10 +95,10 @@ app.get('/api/tasks/global', async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
-    console.log("Fetching global tasks...");
+    console.log("Fetching global tasks..."); // you can uncomment this if you want to see the number of global tasks
     // Fetch all keys starting with 'tasks_'
     const rows = await conn.query("SELECT `key`, `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
-    console.log(`Found ${rows.length} project task entries.`);
+    console.log(`Found ${rows.length} project task entries.`); // you can uncomment this if you want to see the number of global tasks
     
     // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
@@ -126,7 +126,7 @@ app.get('/api/tasks/global', async (req, res) => {
         }
     }, []);
     
-    console.log(`Returning ${allTasks.length} global tasks.`);
+    console.log(`Returning ${allTasks.length} global tasks.`); // you can uncomment this if you want to see the number of global tasks
     res.json(allTasks);
   } catch (error) {
     console.error(`Database global tasks error:`, error);
