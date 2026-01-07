@@ -111,7 +111,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
           cyan: { iconBg: 'bg-cyan-50', iconText: 'text-cyan-600', borderHover: 'hover:border-cyan-300', groupHoverBg: 'group-hover:bg-cyan-600' },
           teal: { iconBg: 'bg-teal-50', iconText: 'text-teal-600', borderHover: 'hover:border-teal-300', groupHoverBg: 'group-hover:bg-teal-600' },
           orange: { iconBg: 'bg-orange-50', iconText: 'text-orange-600', borderHover: 'hover:border-orange-300', groupHoverBg: 'group-hover:bg-orange-600' },
-          dark: { iconBg: 'bg-gray-100', iconText: 'text-gray-800', borderHover: 'hover:border-gray-400', groupHoverBg: 'group-hover:bg-gray-800' },
+          // dark: { iconBg: 'bg-gray-100', iconText: 'text-gray-800', borderHover: 'hover:border-gray-400', groupHoverBg: 'group-hover:bg-gray-800' },
       };
       return colors[color] || colors.blue;
   };

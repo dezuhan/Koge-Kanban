@@ -3,7 +3,7 @@
 
 # Koge Kanban
 
-A streamlined Kanban board featuring drag-and-drop management, table views, and project organization. This application requires a local MariaDB server for data persistence.
+A streamlined Kanban board featuring drag-and-drop management, table views, and project organization. This application requires a local MariaDB server for data persistence and supports optional local AI integration via Ollama.
 
 ## Features
 
@@ -11,75 +11,106 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **Kanban Board**: Drag-and-drop tasks between custom columns.
 *   **Table View**: A structured list view of all tasks.
 *   **Media Support**: Attach image links or upload images (saved to DB).
+*   **AI Integration**: Generate task descriptions and subtasks using local LLMs (Ollama).
 *   **Customization**: Customize column colors and priority settings.
 *   **Database Driven**: Data is stored in a MariaDB database.
 
 ## Prerequisites
 
 *   **Node.js**: Version 18.0.0 or higher.
-*   **NPM**: Included with Node.js.
 *   **MariaDB**: Required for data storage.
+*   **Docker** (Optional): For containerized deployment.
+*   **Ollama** (Optional): For AI features.
 
-## Local Installation & Setup
+## Installation Options
 
-Follow these steps to run the application on your local machine.
+### Option 1: Docker (Recommended)
 
-### 1. Clone the Repository
+The easiest way to run Koge Kanban is using Docker Compose. This sets up the app and database automatically.
 
-```bash
-git clone https://github.com/dezuhan/koge-kanban.git
-cd koge-kanban
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/dezuhan/koge-kanban.git
+    cd koge-kanban
+    ```
 
-### 2. Install Dependencies
+2.  **Start with Docker Compose**
+    ```bash
+    docker-compose up -d
+    ```
 
-```bash
-npm install
-```
+3.  **Access the App**
+    Open `http://localhost:5173` in your browser.
 
-### 3. Setup Database (MariaDB)
+### Option 2: Local Manual Setup
 
-1.  Ensure MariaDB is installed and running on your machine.
-2.  Update the database credentials in `server.js` if they differ from the defaults (user: root, no password).
-3.  Start the backend server:
+Follow these steps to run the application manually on your local machine.
 
-```bash
-// Database Configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost', 
-  user: process.env.DB_USER || 'root', 
-  password: process.env.DB_PASSWORD || '', //insert your password mariaDB into ''
-  connectionLimit: 5
-};
-```
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/dezuhan/koge-kanban.git
+    cd koge-kanban
+    ```
 
-```bash
-node server.js
-```
+2.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
 
-The server will automatically create the `koge_kanban` database and necessary tables if they don't exist.
+3.  **Setup Database (MariaDB)**
+    Ensure MariaDB is installed and running. Create a `.env` file in the root directory (optional but recommended) or rely on defaults.
 
-### 4. Run the Application
+    Example `.env`:
+    ```env
+    DB_HOST=localhost
+    DB_USER=root
+    DB_PASSWORD=your_password
+    OLLAMA_HOST=http://127.0.0.1:11434
+    ```
 
-In a new terminal window:
+4.  **Setup AI (Optional)**
+    *   Install [Ollama](https://ollama.com/).
+    *   Pull a model (e.g., `ollama pull gemma2:2b`).
+    *   Ensure Ollama is running (`ollama serve`).
 
-```bash
-npm run dev
-```
+5.  **Start the Backend Server**
+    ```bash
+    node server.js
+    ```
+    The server will automatically create the `koge_kanban` database and necessary tables.
 
-This will start the development server (usually at `http://localhost:5173`). Open this URL in your browser.
+6.  **Run the Frontend**
+    In a new terminal window:
+    ```bash
+    npm run dev
+    ```
+    Open `http://localhost:5173`.
 
-**Note**: You must have `node server.js` running for the application to work.
+## Private Hybrid Mode (Local Data Gateway)
 
-### 5. Building for Production
+You can use the hosted frontend while keeping **100% of your data stored locally**.
 
-To build the frontend for production:
+1.  **Initialize the Project**
+    ```bash
+    mkdir koge-local-server
+    cd koge-local-server
+    npm init -y
+    npm pkg set type="module"
+    npm install express mariadb cors dotenv express
+    ```
 
-```bash
-npm run build
-```
+2.  **Create Server File**
+    Copy the code from **[server.js](https://github.com/dezuhan/Koge-Kanban/blob/main/server.js)** in this repo into a new `server.js` file.
 
-You can serve the `dist` folder using a static file server, but you must still keep the Node.js backend running for the API.
+3.  **Run the Server**
+    ```bash
+    node server.js
+    ```
+
+4.  **Connect via Browser**
+    *   Navigate to [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
+    *   Allow local network access when prompted.
+    *   **Note**: AI features will only work if you have Ollama running locally on port 11434.
 
 ## Project Structure
 
@@ -94,68 +125,3 @@ Koge-kanban/
 ├── vite.config.js    # Vite configuration
 └── package.json      # Dependencies and scripts
 ```
-
-# Local Data Gateway without Download Entire Code
-
-This repository contains the lightweight backend server required to run **Koge Kanban** in **Private Hybrid Mode**.
-
-This setup allows you to use the modern Koge Kanban web interface (hosted on Vercel) while keeping **100% of your data stored locally** on your machine via MariaDB. No data is ever sent to our cloud servers.
-
-## Architecture
-
-* **Frontend:** Hosted securely on Vercel [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
-* **Backend:** Runs locally on your machine (`localhost:3000`).
-* **Database:** Local MariaDB/MySQL instance.
-* **Connection:** The browser bridges the secure frontend to your local backend using **Private Network Access**.
-
-## Installation & Setup
-
-You do not need to clone the entire repository. You only need to set up the local server gateway.
-
-### 1. Initialize the Project
-Open your terminal, create a new directory, and initialize the environment:
-
-```bash
-mkdir koge-local-server
-cd koge-local-server
-npm init -y
-npm pkg set type="module"
-npm install express mariadb cors
-```
-
-### 2. Create the Server File
-Create a file named server.js in the directory and paste the following code.
-
-Note: Update the dbConfig object if your database uses a password or a different user than root.
-
-Copy code from **[server.js](https://github.com/dezuhan/Koge-Kanban/blob/main/server.js)** in this repo
-
-## Usage Guide
-
-### 1. Run the server
-
-Run the following command in your terminal:
-
-```bash
-node server.js
-```
-
-Keep this terminal window open.
-
-### 2. Connect via Browser
-Open your preferred browser (Chrome, Edge, or Brave).
-
-Navigate to the official frontend: [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
-
-Important: The browser will verify that a public website is trying to access your local network. You will see a prompt:
-
-"Allow site to access your local network?"
-
-Click Allow.
-
-<img width="753" height="514" alt="image" src="https://github.com/user-attachments/assets/72056d5e-8607-4637-aada-a0150fdf3cfd" />
-
-Refresh the page
-
-### 3. Verification
-Create a new project or move a card. Refresh the page. If your changes persist, the connection is successful!
