@@ -96,7 +96,7 @@ You can use the hosted frontend while keeping **100% of your data stored locally
     cd koge-local-server
     npm init -y
     npm pkg set type="module"
-    npm install express mariadb cors dotenv express
+    npm install express mariadb cors dotenv express // (if error try install express@4)
     ```
 
 2.  **Create Server File**
