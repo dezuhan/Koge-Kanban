@@ -309,7 +309,7 @@ app.post('/api/ai/generate', async (req, res) => {
 
     } catch (error) {
         console.error("AI Generation Error:", error.message);
-        res.status(500).json({ error: `Gagal menghubungi Ollama: ${error.message}` });
+        res.status(500).json({ error: `Failed to connect to Ollama: ${error.message}` });
     }
 });
 
@@ -352,7 +352,7 @@ app.post('/api/ai/chat', async (req, res) => {
 
     } catch (error) {
         console.error("[AI Chat] Critical Error:", error.message);
-        res.status(500).json({ error: `Gagal menghubungi Ollama: ${error.message}` });
+        res.status(500).json({ error: `Failed to connect to Ollama: ${error.message}` });
     }
 });
 
