@@ -67,7 +67,9 @@ async function initializeDatabase() {
   } catch (err) {
     console.error("Database Initialization Error:", err);
     console.log("Please ensure MariaDB is running and credentials in server.js are correct.");
-    process.exit(1);
+    if (!process.env.VERCEL) {
+        process.exit(1);
+    }
   } finally {
     if (conn) conn.release();
   }
@@ -235,10 +237,12 @@ app.delete('/api/data/:key', async (req, res) => {
 const DEFAULT_OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
 /**
- * Helper to get Ollama host from request headers or default
+ * Helper to get Ollama host from request headers or default.
+ * Trims trailing slash to avoid double-slash in API paths.
  */
 const getOllamaHost = (req) => {
-    return req.headers['x-ollama-endpoint'] || DEFAULT_OLLAMA_HOST;
+    let host = req.headers['x-ollama-endpoint'] || DEFAULT_OLLAMA_HOST;
+    return host.endsWith('/') ? host.slice(0, -1) : host;
 };
 
 /**
@@ -362,6 +366,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Backend server running on http://127.0.0.1:${PORT}`);
-});
+// Export the app for Vercel
+export default app;
+
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Backend server running on http://127.0.0.1:${PORT}`);
+  });
+}
