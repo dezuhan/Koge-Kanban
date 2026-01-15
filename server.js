@@ -271,22 +271,13 @@ app.post('/api/ai/generate', async (req, res) => {
     const targetModel = model || "gemma3:4b";
     
     try {
-        // 1. Check if Ollama is reachable (optional fast check)
-        try {
-            const check = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1000) });
-            if (!check.ok) throw new Error("Ollama not ready");
-        } catch (e) {
-            return res.status(503).json({ error: "Ollama service is offline or unreachable." });
-        }
-
-        // 2. Forward request to Ollama
+        // Forward directly to Ollama
         const requestBody = {
             model: targetModel,
             prompt: prompt,
             stream: false
         };
 
-        // Add options if provided (e.g. temperature)
         if (options) {
             requestBody.options = options;
         }
@@ -298,15 +289,68 @@ app.post('/api/ai/generate', async (req, res) => {
         });
         
         if (!ollamaRes.ok) {
-            throw new Error(`Ollama API error: ${ollamaRes.statusText}`);
+            const errorText = await ollamaRes.text();
+            return res.status(ollamaRes.status).json({ 
+                error: `Ollama error: ${ollamaRes.statusText}`,
+                details: errorText
+            });
         }
 
         const data = await ollamaRes.json();
         res.json({ response: data.response });
 
     } catch (error) {
-        console.error("AI Generation Error:", error);
-        res.status(500).json({ error: error.message || "Failed to generate AI response" });
+        console.error("AI Generation Error:", error.message);
+        res.status(500).json({ error: `Gagal menghubungi Ollama: ${error.message}` });
+    }
+});
+
+/**
+ * POST /api/ai/chat
+ * Proxies chat request to local Ollama instance
+ */
+app.post('/api/ai/chat', async (req, res) => {
+    const { messages, model, options } = req.body;
+    
+    // Default model if not specified
+    const targetModel = model || "gemma3:4b";
+    console.log(`[AI Chat] Incoming request for model: ${targetModel}`);
+    
+    try {
+        // Forward request directly to Ollama without redundant tags check
+        const requestBody = {
+            model: targetModel,
+            messages: messages,
+            stream: false
+        };
+
+        if (options) {
+            requestBody.options = options;
+        }
+
+        console.log(`[AI Chat] Sending to Ollama: ${OLLAMA_HOST}/api/chat`);
+        const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!ollamaRes.ok) {
+            const errorText = await ollamaRes.text();
+            console.error(`[AI Chat] Ollama returned error (${ollamaRes.status}):`, errorText);
+            return res.status(ollamaRes.status).json({ 
+                error: `Ollama error: ${ollamaRes.statusText}`,
+                details: errorText
+            });
+        }
+
+        const data = await ollamaRes.json();
+        console.log(`[AI Chat] Success from Ollama`);
+        res.json({ message: data.message });
+
+    } catch (error) {
+        console.error("[AI Chat] Critical Error:", error.message);
+        res.status(500).json({ error: `Gagal menghubungi Ollama: ${error.message}` });
     }
 });
 

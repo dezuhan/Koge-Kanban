@@ -50,3 +50,16 @@ export interface PriorityColor {
 }
 
 export type PrioritySettings = Record<Priority, PriorityColor>;
+
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  error?: boolean;
+}
+
+export interface ProjectContext {
+  projectId: string;
+  projectName: string;
+  tasks: Task[];
+  columns: Column[];
+}

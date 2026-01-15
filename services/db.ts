@@ -182,9 +182,23 @@ export const db = {
   saveSettings: async (settings: PrioritySettings) => apiAdapter.save(SETTINGS_KEY, settings),
 
   // AI Settings
-  getAISettings: async (): Promise<{ models: string[], active: string } | null> => apiAdapter.get('ai_settings'),
-  saveAISettings: async (settings: { models: string[], active: string }) => apiAdapter.save('ai_settings', settings),
+  getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean } | null> => apiAdapter.get(`${API_URL}/ai_settings`),
+  saveAISettings: async (settings: { models: string[], active: string, enabled: boolean }) => apiAdapter.save('ai_settings', settings),
   
+  // Chat History
+  /**
+   * Fetches chat history for a specific project or global context.
+   * @param contextId - The project ID or 'global'.
+   * @returns Promise resolving to an array of ChatMessage objects or null.
+   */
+  getChatHistory: async (contextId: string): Promise<any[] | null> => apiAdapter.get<any[]>(`${API_URL}/chat_history_${contextId}`),
+  /**
+   * Saves chat history for a specific project or global context.
+   * @param contextId - The project ID or 'global'.
+   * @param messages - Array of ChatMessage objects.
+   */
+  saveChatHistory: async (contextId: string, messages: any[]) => apiAdapter.save(`chat_history_${contextId}`, messages),
+
   /**
    * Permanently deletes a specific key from the database.
    * @param key - The key to delete.

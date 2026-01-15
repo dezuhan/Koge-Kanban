@@ -11,7 +11,11 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **Kanban Board**: Drag-and-drop tasks between custom columns.
 *   **Table View**: A structured list view of all tasks.
 *   **Media Support**: Attach image links or upload images (saved to DB).
-*   **AI Integration**: Generate task descriptions and subtasks using local LLMs (Ollama).
+*   **Integrated AI Assistant**: 
+    *   **Chat Sidebar**: Always-available AI assistant (Gemini-style) for brainstorming and help.
+    *   **Smart Description**: Auto-generate task descriptions and formatting.
+    *   **Project Summary**: Generate professional status reports with one click.
+    *   **Local Privacy**: Uses local LLMs (Ollama) so your data never leaves your machine.
 *   **Customization**: Customize column colors and priority settings.
 *   **Database Driven**: Data is stored in a MariaDB database.
 
@@ -20,7 +24,7 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **Node.js**: Version 18.0.0 or higher.
 *   **MariaDB**: Required for data storage.
 *   **Docker** (Optional): For containerized deployment.
-*   **Ollama** (Optional): For AI features.
+*   **Ollama** (Required for AI): Download from [ollama.com](https://ollama.com/).
 
 ## Installation Options
 
@@ -68,23 +72,19 @@ Follow these steps to run the application manually on your local machine.
     OLLAMA_HOST=http://127.0.0.1:11434
     ```
 
-4.  **Setup AI (Optional)**
+4.  **Setup AI (Recommended)**
     *   Install [Ollama](https://ollama.com/).
-    *   Pull a model (e.g., `ollama pull gemma2:2b`).
+    *   Pull a model (e.g., `ollama pull qwen2.5:7b` or `ollama pull gemma2:2b`).
     *   Ensure Ollama is running (`ollama serve`).
 
-5.  **Start the Backend Server**
-    ```bash
-    node server.js
-    ```
-    The server will automatically create the `koge_kanban` database and necessary tables.
-
-6.  **Run the Frontend**
-    In a new terminal window:
+5.  **Run the Application**
+    We use `concurrently` to run both the backend API and frontend dev server with a single command:
     ```bash
     npm run dev
     ```
-    Open `http://localhost:5173`.
+    
+    *   Frontend: `http://localhost:5173`
+    *   Backend API: `http://localhost:3000`
 
 ## Private Hybrid Mode (Local Data Gateway)
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, Task, Priority } from '../types';
-import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Sparkles, ToggleLeft, ToggleRight, Loader2, Settings } from 'lucide-react';
+import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Wand2, ToggleLeft, ToggleRight, Loader2, Settings } from 'lucide-react';
 import { db } from '../services/db';
 import AISettingsModal from './AISettingsModal';
+import { MessageSquare } from 'lucide-react';
 
 interface ProjectListProps {
   /** List of all available projects */
@@ -25,7 +26,7 @@ interface ProjectListProps {
  * 2. "My Boards" section (Grid of projects)
  */
 const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, onAddProject, onEditProject, onDeleteProject }) => {
-  const { isAIEnabled, toggleAI, aiModels, fetchModels, activeModel } = useApp();
+  const { isAIEnabled, toggleAI, aiModels, fetchModels, activeModel, isChatOpen, setIsChatOpen, setCurrentContext } = useApp();
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
@@ -33,6 +34,11 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
   const [dashboardFilter, setDashboardFilter] = useState<'dueDate' | 'priority'>('dueDate');
   const [dashboardView, setDashboardView] = useState<'grid' | 'list'>('grid');
   const [isRecentTasksCollapsed, setIsRecentTasksCollapsed] = useState(false);
+
+  // Clear AI context when on Dashboard
+  useEffect(() => {
+    setCurrentContext(null);
+  }, [setCurrentContext]);
 
   useEffect(() => {
     /**
@@ -187,13 +193,13 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                     }}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-bold border text-sm ${
                         isAIEnabled 
-                            ? 'bg-white text-purple-700 border-purple-200 shadow-sm' 
+                            ? 'bg-white text-blue-700 border-blue-200 shadow-sm' 
                             : 'bg-transparent text-gray-500 border-transparent hover:bg-gray-200'
                     }`}
                     disabled={isTogglingAI}
                     title={isAIEnabled ? "Disable AI Features" : "Enable AI Features"}
                 >
-                    {isTogglingAI ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                    {isTogglingAI ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
                     <span className="whitespace-nowrap hidden sm:inline">AI</span>
                     {isAIEnabled ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                 </button>
@@ -204,6 +210,19 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                 >
                     <Settings size={18} />
                 </button>
+                {isAIEnabled && (
+                    <button
+                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        className={`p-2 rounded-lg transition-all ${
+                            isChatOpen 
+                                ? 'bg-blue-600 text-white shadow-sm' 
+                                : 'text-blue-600 hover:bg-white hover:shadow-sm'
+                        }`}
+                        title="Open AI Chat"
+                    >
+                        <MessageSquare size={18} />
+                    </button>
+                )}
         </div>
 
             <button 

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, Priority, SubTask, Column } from '../types';
-import { X, Calendar, User, Sparkles, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough } from 'lucide-react';
+import { X, Calendar, User, Wand2, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ConfirmModal from './ConfirmModal';
 import { SubTaskList } from './task-modal/SubTaskList';
 import { MediaUploader } from './task-modal/MediaUploader';
 import { useApp } from '../context/AppContext';
+import { getAutoFillPrompt, getDescriptionPrompt, getMarkdownFormatPrompt } from '../fine-tunning/task-modal/prompts';
 
 interface TaskModalProps {
   /** Whether the modal is visible */
@@ -355,24 +356,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
       setIsAILoading(true);
       setAiThinking(null);
       try {
-          const prompt = `Act as a Strict Markdown Formatter.
-          
-          Input Text:
-          """
-          ${description}
-          """
+          const prompt = getMarkdownFormatPrompt(description);
 
-          STRICT INSTRUCTIONS:
-          1. **DO NOT CHANGE THE CONTENT**: You are forbidden from adding, removing, or rephrasing words. The text must remain word-for-word identical to the input, except for the addition of Markdown syntax.
-          2. **ADD MARKDOWN ONLY**: Add '#' for headers, '-' for lists, '**' for bolding key terms, and other Markdown symbols where appropriate based on the context.
-          3. **STRUCTURE**: Infer the logical structure (headers, lists) from the input text.
-          4. **LANGUAGE**: Keep the original language exactly as is.
-
-          PROCESS:
-          1. Analyze the structure in <think> tags.
-          2. Output the formatted markdown.`;
-
-          const response = await fetch('http://localhost:3000/api/ai/generate', {
+          const response = await fetch('/api/ai/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt, model: activeModel })
@@ -418,25 +404,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
       setAiThinking(null);
       try {
           // Construct a prompt based on title and existing description
-          const prompt = `Role: Task Management Assistant.
+          const prompt = getDescriptionPrompt(title, description, userInstructions);
 
-          Context:
-          - Title: "${title}"
-          ${description ? `- Existing Content: """${description}"""` : ''}
-          ${userInstructions ? `- User Instruction: """${userInstructions}"""` : ''}
-
-          STRICT RULES:
-          1. **FOLLOW INSTRUCTIONS:** If "User Instruction" is provided, follow it exactly.
-          2. **NO UNSOLICITED REFINEMENT:** If the user DOES NOT explicitly ask to "refine", "rewrite", "improve", or "change" the existing content, **YOU MUST NOT CHANGE THE ORIGINAL WORDING**. 
-             - You may only apply Markdown formatting (headers, lists).
-             - You may add requested sections (e.g. "Add Acceptance Criteria") while keeping the original text identical.
-          3. **GENERATION:** Only generate new creative content if "Existing Content" is empty OR if the "User Instruction" asks for it.
-
-          PROCESS:
-          1. Plan in <think> tags.
-          2. Output the result.`;
-
-          const response = await fetch('http://localhost:3000/api/ai/generate', {
+          const response = await fetch('/api/ai/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ prompt, model: activeModel })
@@ -505,6 +475,63 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., Fix login bug"
               />
+              {isAIEnabled && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                        if (!title) {
+                            alert("Please enter a title first.");
+                            return;
+                        }
+                        setIsAILoading(true);
+                        try {
+                            const prompt = getAutoFillPrompt(title, description);
+
+                            const response = await fetch('/api/ai/generate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ prompt, model: activeModel })
+                            });
+
+                            if (!response.ok) throw new Error("AI request failed");
+                            const data = await response.json();
+                            
+                            const jsonMatch = data.response.match(/```json\s*([\s\S]*?)\s*```/) || data.response.match(/{[\s\S]*}/);
+                            if (jsonMatch) {
+                                const result = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+                                
+                                if (result.description) {
+                                    updateDescriptionWithHistory(result.description);
+                                    setIsEditingDesc(true);
+                                }
+                                if (result.category) setCategory(result.category);
+                                if (result.project) setProject(result.project);
+                                if (result.assignee) setAssignee(result.assignee);
+                                if (result.priority) setPriority(result.priority as Priority);
+                                if (result.dueDate) setDueDate(result.dueDate);
+                                if (result.subTasks && Array.isArray(result.subTasks)) {
+                                    setSubTasks(result.subTasks.map((st: any) => ({
+                                        id: crypto.randomUUID(),
+                                        title: st.title,
+                                        isCompleted: false
+                                    })));
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Auto-fill failed", e);
+                            alert("Failed to auto-fill details. Please try again.");
+                        } finally {
+                            setIsAILoading(false);
+                        }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50"
+                    disabled={isAILoading || !title}
+                    title="Auto-fill details with AI"
+                  >
+                    {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                    <span className="text-sm font-medium">Auto-Fill</span>
+                  </button>
+              )}
             </div>
           </div>
 
@@ -594,10 +621,10 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                         <button
                             type="button"
                             onClick={() => setShowAIContext(!showAIContext)}
-                            className={`flex items-center gap-1 text-xs px-3 py-1 rounded-md transition-colors disabled:opacity-50 ${showAIContext ? 'bg-purple-200 text-purple-800' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'}`}
+                            className={`flex items-center gap-1 text-xs px-3 py-1 rounded-md transition-colors disabled:opacity-50 ${showAIContext ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
                             title="Generate description with AI"
                         >
-                            <Sparkles size={12} />
+                            <Wand2 size={12} />
                             AI Assist
                         </button>
                     )}
@@ -616,21 +643,21 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
             </div>
             
             {isAIEnabled && showAIContext && (
-                <div className="mb-2 p-2 bg-purple-50 border border-purple-100 rounded-lg animate-fade-in">
+                <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in">
                     {aiThinking && (
-                        <div className="mb-2 p-2 bg-white/80 border border-purple-100 rounded text-[10px] text-gray-600 max-h-32 overflow-y-auto">
-                            <strong className="block text-purple-700 mb-1">AI Thought Process:</strong>
+                        <div className="mb-2 p-2 bg-white/80 border border-blue-100 rounded text-[10px] text-gray-600 max-h-32 overflow-y-auto">
+                            <strong className="block text-blue-700 mb-1">AI Thought Process:</strong>
                             <div className="whitespace-pre-wrap font-mono">{aiThinking}</div>
                         </div>
                     )}
-                    <label className="block text-xs font-medium text-purple-800 mb-1">
+                    <label className="block text-xs font-medium text-blue-800 mb-1">
                         AI Instructions / Context:
                     </label>
                     <textarea
                         value={userInstructions}
                         onChange={(e) => setUserInstructions(e.target.value)}
                         placeholder="e.g., 'Make it formal', 'Focus on technical details', 'Summarize briefly'..."
-                        className="w-full text-xs p-2 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 min-h-[60px] resize-none mb-2"
+                        className="w-full text-xs p-2 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[60px] resize-none mb-2"
                     />
                     <div className="flex gap-2">
                         <button
@@ -640,16 +667,16 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                             className="flex-1 flex justify-center items-center gap-2 text-xs bg-gray-100 text-gray-700 py-1.5 rounded hover:bg-gray-200 transition-colors disabled:opacity-70 border border-gray-200"
                             title="Format text to Markdown without changing words"
                         >
-                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12} />}
+                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Wand2 size={12} />}
                             Format Only
                         </button>
                         <button
                             type="button"
                             onClick={handleGenerateDescription}
                             disabled={isAILoading}
-                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-purple-600 text-white py-1.5 rounded hover:bg-purple-700 transition-colors disabled:opacity-70"
+                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-blue-600 text-white py-1.5 rounded hover:bg-blue-700 transition-colors disabled:opacity-70"
                         >
-                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12} />}
+                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Wand2 size={12} />}
                             Generate Description
                         </button>
                     </div>
@@ -658,12 +685,12 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
             {/* Display AI Thinking if available and AI context is closed (e.g. after generation) */}
             {isAIEnabled && !showAIContext && aiThinking && (
-                 <div className="mb-2 p-2 bg-purple-50 border border-purple-100 rounded-lg animate-fade-in text-xs">
+                 <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in text-xs">
                      <div className="flex justify-between items-center mb-1 cursor-pointer" onClick={() => setAiThinking(null)} title="Dismiss">
-                         <strong className="text-purple-700">AI Thought Process:</strong>
-                         <X size={12} className="text-purple-400 hover:text-purple-700"/>
+                         <strong className="text-blue-700">AI Thought Process:</strong>
+                         <X size={12} className="text-blue-400 hover:text-blue-700"/>
                      </div>
-                     <div className="p-2 bg-white/80 border border-purple-100 rounded text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px]">
+                     <div className="p-2 bg-white/80 border border-blue-100 rounded text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px]">
                          {aiThinking}
                      </div>
                  </div>
@@ -719,7 +746,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                     {/* AI Loading Overlay */}
                     {isAILoading && (
                         <div className="absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-10 animate-in fade-in duration-200">
-                             <div className="flex items-center gap-2 text-purple-600 font-medium mb-2 bg-white px-4 py-2 rounded-full shadow-sm border border-purple-100">
+                             <div className="flex items-center gap-2 text-blue-600 font-medium mb-2 bg-white px-4 py-2 rounded-full shadow-sm border border-blue-100">
                                 <Loader2 size={20} className="animate-spin" />
                                 <span>AI is refining your content...</span>
                              </div>
