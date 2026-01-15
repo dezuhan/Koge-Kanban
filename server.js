@@ -232,19 +232,26 @@ app.delete('/api/data/:key', async (req, res) => {
 
 // --- AI Integration (Ollama) ---
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+const DEFAULT_OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+
+/**
+ * Helper to get Ollama host from request headers or default
+ */
+const getOllamaHost = (req) => {
+    return req.headers['x-ollama-endpoint'] || DEFAULT_OLLAMA_HOST;
+};
 
 /**
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
  */
 app.get('/api/ai/models', async (req, res) => {
+    const ollamaHost = getOllamaHost(req);
     try {
-        // 1. Check if Ollama is reachable
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        const response = await fetch(`${OLLAMA_HOST}/api/tags`, { 
+        const response = await fetch(`${ollamaHost}/api/tags`, { 
             signal: controller.signal 
         });
         clearTimeout(timeoutId);
@@ -252,11 +259,10 @@ app.get('/api/ai/models', async (req, res) => {
         if (!response.ok) throw new Error("Failed to fetch models from Ollama");
         
         const data = await response.json();
-        // Ollama returns { models: [...] }
         res.json(data);
     } catch (error) {
         console.error("AI Models Fetch Error:", error);
-        res.status(503).json({ error: "Ollama service is offline or unreachable." });
+        res.status(503).json({ error: "Ollama service is offline or unreachable.", details: error.message });
     }
 });
 
@@ -266,12 +272,10 @@ app.get('/api/ai/models', async (req, res) => {
  */
 app.post('/api/ai/generate', async (req, res) => {
     const { prompt, model, options } = req.body;
-    
-    // Default model if not specified
+    const ollamaHost = getOllamaHost(req);
     const targetModel = model || "gemma3:4b";
     
     try {
-        // Forward directly to Ollama
         const requestBody = {
             model: targetModel,
             prompt: prompt,
@@ -282,7 +286,7 @@ app.post('/api/ai/generate', async (req, res) => {
             requestBody.options = options;
         }
 
-        const ollamaRes = await fetch(`${OLLAMA_HOST}/api/generate`, {
+        const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
@@ -311,13 +315,10 @@ app.post('/api/ai/generate', async (req, res) => {
  */
 app.post('/api/ai/chat', async (req, res) => {
     const { messages, model, options } = req.body;
-    
-    // Default model if not specified
+    const ollamaHost = getOllamaHost(req);
     const targetModel = model || "gemma3:4b";
-    console.log(`[AI Chat] Incoming request for model: ${targetModel}`);
     
     try {
-        // Forward request directly to Ollama without redundant tags check
         const requestBody = {
             model: targetModel,
             messages: messages,
@@ -328,8 +329,7 @@ app.post('/api/ai/chat', async (req, res) => {
             requestBody.options = options;
         }
 
-        console.log(`[AI Chat] Sending to Ollama: ${OLLAMA_HOST}/api/chat`);
-        const ollamaRes = await fetch(`${OLLAMA_HOST}/api/chat`, {
+        const ollamaRes = await fetch(`${ollamaHost}/api/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
@@ -337,7 +337,6 @@ app.post('/api/ai/chat', async (req, res) => {
         
         if (!ollamaRes.ok) {
             const errorText = await ollamaRes.text();
-            console.error(`[AI Chat] Ollama returned error (${ollamaRes.status}):`, errorText);
             return res.status(ollamaRes.status).json({ 
                 error: `Ollama error: ${ollamaRes.statusText}`,
                 details: errorText
@@ -345,7 +344,6 @@ app.post('/api/ai/chat', async (req, res) => {
         }
 
         const data = await ollamaRes.json();
-        console.log(`[AI Chat] Success from Ollama`);
         res.json({ message: data.message });
 
     } catch (error) {

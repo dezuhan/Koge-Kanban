@@ -11,12 +11,19 @@ const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) =>
   const { aiModels, activeModel, addAIModel, removeAIModel, setActiveAIModel, toggleAI, isAIEnabled, fetchModels, ollamaEndpoint, setOllamaEndpoint } = useApp();
   const [newModelName, setNewModelName] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      fetchModels();
+      handleRefresh();
     }
-  }, [isOpen, fetchModels]);
+  }, [isOpen]);
+
+  const handleRefresh = async () => {
+      setIsRefreshing(true);
+      await fetchModels();
+      setIsRefreshing(false);
+  };
 
   if (!isOpen) return null;
 
@@ -100,11 +107,12 @@ const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) =>
                           className="flex-1 text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                       />
                       <button 
-                          onClick={() => fetchModels()}
-                          className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
+                          onClick={handleRefresh}
+                          disabled={isRefreshing}
+                          className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors shadow-sm disabled:opacity-50"
                           title="Refresh / Test Connection"
                       >
-                          <RefreshCw size={18} />
+                          <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
                       </button>
                   </div>
                   <p className="text-[10px] text-slate-500 leading-tight italic">

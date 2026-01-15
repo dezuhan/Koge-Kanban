@@ -191,7 +191,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAiModels([]);
           return [];
       }
-  }, []);
+  }, [ollamaEndpoint]);
 
   const toggleAI = async (): Promise<boolean> => {
       if (isAIEnabled) {
