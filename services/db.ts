@@ -182,8 +182,8 @@ export const db = {
   saveSettings: async (settings: PrioritySettings) => apiAdapter.save(SETTINGS_KEY, settings),
 
   // AI Settings
-  getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean } | null> => apiAdapter.get(`${API_URL}/ai_settings`),
-  saveAISettings: async (settings: { models: string[], active: string, enabled: boolean }) => apiAdapter.save('ai_settings', settings),
+  getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean, endpoint?: string } | null> => apiAdapter.get(`${API_URL}/ai_settings`),
+  saveAISettings: async (settings: { models: string[], active: string, enabled: boolean, endpoint?: string }) => apiAdapter.save('ai_settings', settings),
   
   // Chat History
   /**

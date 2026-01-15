@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, CheckCircle2, Circle, Loader2, Power, AlertTriangle, Star } from 'lucide-react';
+import { X, Plus, Trash2, CheckCircle2, Circle, Loader2, Power, AlertTriangle, Star, Globe, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 interface AISettingsModalProps {
@@ -8,7 +8,7 @@ interface AISettingsModalProps {
 }
 
 const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) => {
-  const { aiModels, activeModel, addAIModel, removeAIModel, setActiveAIModel, toggleAI, isAIEnabled, fetchModels } = useApp();
+  const { aiModels, activeModel, addAIModel, removeAIModel, setActiveAIModel, toggleAI, isAIEnabled, fetchModels, ollamaEndpoint, setOllamaEndpoint } = useApp();
   const [newModelName, setNewModelName] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -84,6 +84,35 @@ const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) =>
         </div>
 
         <div className="p-6 flex-1 overflow-y-auto">
+          {/* Connection Settings */}
+          <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <Globe size={14} /> Connection Settings
+              </h3>
+              <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Ollama Endpoint URL</label>
+                  <div className="flex gap-2">
+                      <input 
+                          type="text"
+                          value={ollamaEndpoint}
+                          onChange={(e) => setOllamaEndpoint(e.target.value)}
+                          placeholder="http://localhost:11434"
+                          className="flex-1 text-sm px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                      />
+                      <button 
+                          onClick={() => fetchModels()}
+                          className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
+                          title="Refresh / Test Connection"
+                      >
+                          <RefreshCw size={18} />
+                      </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-tight italic">
+                      * On public domains (Vercel), use a tunnel (Ngrok/Cloudflare) if localhost is blocked.
+                  </p>
+              </div>
+          </div>
+
           <div className="mb-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Available Models (Device)</h3>
             

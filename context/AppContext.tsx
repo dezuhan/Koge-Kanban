@@ -18,6 +18,8 @@ interface AppContextType {
   addAIModel: (model: string) => void;
   removeAIModel: (model: string) => void;
   setActiveAIModel: (model: string) => void;
+  ollamaEndpoint: string;
+  setOllamaEndpoint: (endpoint: string) => void;
   isChatOpen: boolean;
   setIsChatOpen: (isOpen: boolean) => void;
   isAILoading: boolean;
@@ -130,6 +132,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAIEnabled, setIsAIEnabled] = useState(false);
   const [aiModels, setAiModels] = useState<string[]>([]);
   const [activeModel, setActiveModel] = useState<string>('');
+  const [ollamaEndpoint, setOllamaEndpoint] = useState<string>('http://localhost:11434');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAILoading, setIsAILoading] = useState(false);
@@ -151,7 +154,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchModels = useCallback(async (): Promise<string[]> => {
       try {
-          const response = await fetch('/api/ai/models');
+          const response = await fetch('/api/ai/models', {
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint 
+              }
+          });
           if (!response.ok) {
             setAiModels([]);
             return [];
@@ -207,7 +215,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               
             const response = await fetch('/api/ai/generate', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 
+                      'Content-Type': 'application/json',
+                      'x-ollama-endpoint': ollamaEndpoint
+                  },
                   body: JSON.stringify({ prompt: "ping", model: activeModel })
               });
               
@@ -267,6 +278,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 loadedActiveModel = fetchedAISettings.active || '';
                 setActiveModel(loadedActiveModel);
                 setIsAIEnabled(!!fetchedAISettings.enabled);
+                if (fetchedAISettings.endpoint) setOllamaEndpoint(fetchedAISettings.endpoint);
             }
 
             // AUTO-ACTIVATION LOGIC:
@@ -347,13 +359,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         db.saveAISettings({ 
             models: aiModels, 
             active: activeModel,
-            enabled: isAIEnabled 
+            enabled: isAIEnabled,
+            endpoint: ollamaEndpoint
         });
     }
-  }, [aiModels, activeModel, isAIEnabled, appLoading, isInitialized]);
+  }, [aiModels, activeModel, isAIEnabled, ollamaEndpoint, appLoading, isInitialized]);
 
   return (
-    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, boardRefreshTrigger, notifyBoardRefresh }}>
+    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint, setOllamaEndpoint, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, boardRefreshTrigger, notifyBoardRefresh }}>
       {children}
     </AppContext.Provider>
   );

@@ -396,7 +396,10 @@ const BoardPage: React.FC = () => {
           // 3. Call AI
           const response = await fetch('/api/ai/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': (useApp as any)().ollamaEndpoint // Quick fix for scope
+              },
               body: JSON.stringify({ prompt, model: activeModel })
           });
 

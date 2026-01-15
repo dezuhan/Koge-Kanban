@@ -34,7 +34,7 @@ const SUGGESTIONS = [
  * A Gemini-style integrated sidebar AI assistant.
  */
 const ChatBot: React.FC = () => {
-  const { isAIEnabled, activeModel, isChatOpen, setIsChatOpen, currentContext, notifyBoardRefresh, projects, isAILoading, setIsAILoading } = useApp();
+  const { isAIEnabled, activeModel, isChatOpen, setIsChatOpen, currentContext, notifyBoardRefresh, projects, isAILoading, setIsAILoading, ollamaEndpoint } = useApp();
   
   // All Hooks must be at the top level
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -255,7 +255,10 @@ ${currentContext.tasks.length > 0
     try {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'x-ollama-endpoint': ollamaEndpoint
+        },
         body: JSON.stringify({
           model: activeModel,
           messages: [{ role: 'system', content: getChatbotSystemPrompt(contextSummary, projectsList, referencedData) }, ...messagesPayload]
