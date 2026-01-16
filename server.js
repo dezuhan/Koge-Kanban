@@ -67,7 +67,9 @@ async function initializeDatabase() {
   } catch (err) {
     console.error("Database Initialization Error:", err);
     console.log("Please ensure MariaDB is running and credentials in server.js are correct.");
-    process.exit(1);
+    if (!process.env.VERCEL) {
+        process.exit(1);
+    }
   } finally {
     if (conn) conn.release();
   }
@@ -232,19 +234,28 @@ app.delete('/api/data/:key', async (req, res) => {
 
 // --- AI Integration (Ollama) ---
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+const DEFAULT_OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+
+/**
+ * Helper to get Ollama host from request headers or default.
+ * Trims trailing slash to avoid double-slash in API paths.
+ */
+const getOllamaHost = (req) => {
+    let host = req.headers['x-ollama-endpoint'] || DEFAULT_OLLAMA_HOST;
+    return host.endsWith('/') ? host.slice(0, -1) : host;
+};
 
 /**
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
  */
 app.get('/api/ai/models', async (req, res) => {
+    const ollamaHost = getOllamaHost(req);
     try {
-        // 1. Check if Ollama is reachable
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        const response = await fetch(`${OLLAMA_HOST}/api/tags`, { 
+        const response = await fetch(`${ollamaHost}/api/tags`, { 
             signal: controller.signal 
         });
         clearTimeout(timeoutId);
@@ -252,11 +263,10 @@ app.get('/api/ai/models', async (req, res) => {
         if (!response.ok) throw new Error("Failed to fetch models from Ollama");
         
         const data = await response.json();
-        // Ollama returns { models: [...] }
         res.json(data);
     } catch (error) {
         console.error("AI Models Fetch Error:", error);
-        res.status(503).json({ error: "Ollama service is offline or unreachable." });
+        res.status(503).json({ error: "Ollama service is offline or unreachable.", details: error.message });
     }
 });
 
@@ -266,47 +276,83 @@ app.get('/api/ai/models', async (req, res) => {
  */
 app.post('/api/ai/generate', async (req, res) => {
     const { prompt, model, options } = req.body;
-    
-    // Default model if not specified
+    const ollamaHost = getOllamaHost(req);
     const targetModel = model || "gemma3:4b";
     
     try {
-        // 1. Check if Ollama is reachable (optional fast check)
-        try {
-            const check = await fetch(`${OLLAMA_HOST}/api/tags`, { signal: AbortSignal.timeout(1000) });
-            if (!check.ok) throw new Error("Ollama not ready");
-        } catch (e) {
-            return res.status(503).json({ error: "Ollama service is offline or unreachable." });
-        }
-
-        // 2. Forward request to Ollama
         const requestBody = {
             model: targetModel,
             prompt: prompt,
             stream: false
         };
 
-        // Add options if provided (e.g. temperature)
         if (options) {
             requestBody.options = options;
         }
 
-        const ollamaRes = await fetch(`${OLLAMA_HOST}/api/generate`, {
+        const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
         
         if (!ollamaRes.ok) {
-            throw new Error(`Ollama API error: ${ollamaRes.statusText}`);
+            const errorText = await ollamaRes.text();
+            return res.status(ollamaRes.status).json({ 
+                error: `Ollama error: ${ollamaRes.statusText}`,
+                details: errorText
+            });
         }
 
         const data = await ollamaRes.json();
         res.json({ response: data.response });
 
     } catch (error) {
-        console.error("AI Generation Error:", error);
-        res.status(500).json({ error: error.message || "Failed to generate AI response" });
+        console.error("AI Generation Error:", error.message);
+        res.status(500).json({ error: `Failed to connect to Ollama: ${error.message}` });
+    }
+});
+
+/**
+ * POST /api/ai/chat
+ * Proxies chat request to local Ollama instance
+ */
+app.post('/api/ai/chat', async (req, res) => {
+    const { messages, model, options } = req.body;
+    const ollamaHost = getOllamaHost(req);
+    const targetModel = model || "gemma3:4b";
+    
+    try {
+        const requestBody = {
+            model: targetModel,
+            messages: messages,
+            stream: false
+        };
+
+        if (options) {
+            requestBody.options = options;
+        }
+
+        const ollamaRes = await fetch(`${ollamaHost}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!ollamaRes.ok) {
+            const errorText = await ollamaRes.text();
+            return res.status(ollamaRes.status).json({ 
+                error: `Ollama error: ${ollamaRes.statusText}`,
+                details: errorText
+            });
+        }
+
+        const data = await ollamaRes.json();
+        res.json({ message: data.message });
+
+    } catch (error) {
+        console.error("[AI Chat] Critical Error:", error.message);
+        res.status(500).json({ error: `Failed to connect to Ollama: ${error.message}` });
     }
 });
 
@@ -320,6 +366,11 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Backend server running on http://127.0.0.1:${PORT}`);
-});
+// Export the app for Vercel
+export default app;
+
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Backend server running on http://127.0.0.1:${PORT}`);
+  });
+}

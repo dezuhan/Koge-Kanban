@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { SubTask } from '../../types';
-import { Plus, CheckSquare, Square, Trash2, Sparkles, Loader2, Edit2, Check, X } from 'lucide-react';
+import { Plus, CheckSquare, Square, Trash2, Wand2, Loader2, Edit2, Check, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getSubtasksChecklistPrompt } from '../../fine-tunning/subtasks/checklist-prompt';
 
 interface SubTaskListProps {
   subTasks: SubTask[];
@@ -85,21 +86,13 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
               context += `\n\nUser Specific Instructions:\n"${userInstructions}"`;
           }
 
-          const prompt = `Act as a Senior Project Manager. Analyze the following task title and description in detail.
-          
-          ${context}
-          
-          Based on this context, break down this task into a logical, step-by-step checklist of subtasks required to complete it.
-          - If the description already lists steps, format them as subtasks.
-          - If the description is vague, infer the necessary steps based on the title and context.
-          
-          Return ONLY the subtask titles, one per line. No numbering, no bullets, just plain text.`;
+          const prompt = getSubtasksChecklistPrompt(context);
 
-          const response = await fetch('http://localhost:3000/api/ai/generate', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt, model: activeModel })
-          });
+          const response = await fetch('/api/ai/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, model: activeModel })
+        });
 
           if (!response.ok) {
               const err = await response.json();
@@ -153,9 +146,9 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                         type="button"
                         onClick={() => setShowAIContext(!showAIContext)}
                         disabled={!parentTaskTitle}
-                        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors disabled:opacity-50 ${showAIContext ? 'bg-purple-200 text-purple-800' : 'bg-purple-100 text-purple-700 hover:bg-purple-200'}`}
+                        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors disabled:opacity-50 ${showAIContext ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
                     >
-                        <Sparkles size={10} />
+                        <Wand2 size={10} />
                         AI Auto-Split
                     </button>
                 )}
@@ -163,23 +156,23 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
         </div>
 
         {isAIEnabled && showAIContext && (
-            <div className="mb-2 p-2 bg-purple-50 border border-purple-100 rounded-lg animate-fade-in">
-                <label className="block text-xs font-medium text-purple-800 mb-1">
+            <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in">
+                <label className="block text-xs font-medium text-blue-800 mb-1">
                     Specific Instructions (Optional):
                 </label>
                 <textarea
                     value={userInstructions}
                     onChange={(e) => setUserInstructions(e.target.value)}
                     placeholder="e.g. 'Limit to 3 items', 'Focus on testing', 'Include a review step'..."
-                    className="w-full text-xs p-2 border border-purple-200 rounded focus:outline-none focus:ring-1 focus:ring-purple-400 min-h-[60px] resize-none mb-2"
+                    className="w-full text-xs p-2 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[60px] resize-none mb-2"
                 />
                 <button
                     type="button"
                     onClick={handleAIGenerate}
                     disabled={isAILoading}
-                    className="w-full flex justify-center items-center gap-2 text-xs bg-purple-600 text-white py-1.5 rounded hover:bg-purple-700 transition-colors disabled:opacity-70"
+                    className="w-full flex justify-center items-center gap-2 text-xs bg-blue-600 text-white py-1.5 rounded hover:bg-blue-700 transition-colors disabled:opacity-70"
                 >
-                    {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12} />}
+                    {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Wand2 size={12} />}
                     Generate Checklist
                 </button>
             </div>

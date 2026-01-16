@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, Task, Priority } from '../types';
-import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Sparkles, ToggleLeft, ToggleRight, Loader2, Settings } from 'lucide-react';
+import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Wand2, ToggleLeft, ToggleRight, Loader2, Settings, MessageSquare } from 'lucide-react';
 import { db } from '../services/db';
 import AISettingsModal from './AISettingsModal';
 
@@ -25,14 +25,45 @@ interface ProjectListProps {
  * 2. "My Boards" section (Grid of projects)
  */
 const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, onAddProject, onEditProject, onDeleteProject }) => {
-  const { isAIEnabled, toggleAI, aiModels, fetchModels, activeModel } = useApp();
+  const { isAIEnabled, toggleAI, aiModels, fetchModels, activeModel, isChatOpen, setIsChatOpen, setCurrentContext } = useApp();
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
   const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const [apiBaseDraft, setApiBaseDraft] = useState('');
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const API_BASE_STORAGE_KEY = 'koge_api_base_url';
+  const defaultApiBaseUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin;
+  }, []);
+
   const [dashboardFilter, setDashboardFilter] = useState<'dueDate' | 'priority'>('dueDate');
   const [dashboardView, setDashboardView] = useState<'grid' | 'list'>('grid');
   const [isRecentTasksCollapsed, setIsRecentTasksCollapsed] = useState(false);
+
+  // Clear AI context when on Dashboard
+  useEffect(() => {
+    setCurrentContext(null);
+  }, [setCurrentContext]);
+
+  useEffect(() => {
+    if (!isSettingsMenuOpen || typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    setApiBaseDraft(stored);
+  }, [isSettingsMenuOpen]);
+
+  useEffect(() => {
+    if (!isSettingsMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
+        setIsSettingsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSettingsMenuOpen]);
 
   useEffect(() => {
     /**
@@ -92,6 +123,24 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
           case Priority.MEDIUM: return 'text-amber-600 bg-amber-50 border-amber-100';
           default: return 'text-blue-600 bg-blue-50 border-blue-100';
       }
+  };
+
+  const normalizeApiBase = (value: string) => value.replace(/\/+$/, '');
+
+  const handleSaveApiBase = () => {
+    if (typeof window === 'undefined') return;
+    const previous = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    const next = normalizeApiBase(apiBaseDraft.trim());
+    if (next) {
+      window.localStorage.setItem(API_BASE_STORAGE_KEY, next);
+    } else {
+      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    }
+    const changed = previous !== next;
+    setIsSettingsMenuOpen(false);
+    if (changed) {
+      window.location.reload();
+    }
   };
 
   const getInitials = (name: string) => {
@@ -187,23 +236,75 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                     }}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-bold border text-sm ${
                         isAIEnabled 
-                            ? 'bg-white text-purple-700 border-purple-200 shadow-sm' 
+                            ? 'bg-white text-blue-700 border-blue-200 shadow-sm' 
                             : 'bg-transparent text-gray-500 border-transparent hover:bg-gray-200'
                     }`}
                     disabled={isTogglingAI}
                     title={isAIEnabled ? "Disable AI Features" : "Enable AI Features"}
                 >
-                    {isTogglingAI ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                    {isTogglingAI ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
                     <span className="whitespace-nowrap hidden sm:inline">AI</span>
                     {isAIEnabled ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                 </button>
-                <button
-                    onClick={() => setIsAISettingsOpen(true)}
-                    className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
-                    title="AI Settings (Manage Models)"
-                >
-                    <Settings size={18} />
-                </button>
+                <div className="relative" ref={settingsMenuRef}>
+                    <button
+                        onClick={() => setIsSettingsMenuOpen(prev => !prev)}
+                        className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
+                        title="Quick Settings"
+                    >
+                        <Settings size={18} />
+                    </button>
+                    {isSettingsMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                                Quick Settings
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-medium text-gray-600">API Base Domain</label>
+                                <input
+                                    type="url"
+                                    value={apiBaseDraft}
+                                    onChange={(e) => setApiBaseDraft(e.target.value)}
+                                    placeholder="https://abcd.ngrok-free.app"
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                                />
+                                <p className="text-[10px] text-gray-500 leading-tight">
+                                    Kosongkan untuk default ({defaultApiBaseUrl}/api).
+                                </p>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between">
+                                <button
+                                    onClick={() => {
+                                        setIsSettingsMenuOpen(false);
+                                        setIsAISettingsOpen(true);
+                                    }}
+                                    className="text-xs text-gray-500 hover:text-gray-700"
+                                >
+                                    AI Models
+                                </button>
+                                <button
+                                    onClick={handleSaveApiBase}
+                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+                                >
+                                    Save & Reload
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+                {isAIEnabled && (
+                    <button
+                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        className={`p-2 rounded-lg transition-all ${
+                            isChatOpen 
+                                ? 'bg-blue-600 text-white shadow-sm' 
+                                : 'text-blue-600 hover:bg-white hover:shadow-sm'
+                        }`}
+                        title="Open AI Chat"
+                    >
+                        <MessageSquare size={18} />
+                    </button>
+                )}
         </div>
 
             <button 

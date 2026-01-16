@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { db } from '../services/db';
@@ -10,7 +10,11 @@ import SettingsModal from '../components/SettingsModal';
 import ConfirmModal from '../components/ConfirmModal';
 import ColumnModal from '../components/ColumnModal';
 import SummaryModal from '../components/SummaryModal';
-import { Plus, Layout, List, Search, Filter, Settings, ChevronLeft, Edit2, Loader2, Activity, ArrowUpDown, Calendar, AlertCircle } from 'lucide-react';
+import AISettingsModal from '../components/AISettingsModal';
+import { Plus, Layout, List, Search, Filter, Settings, ChevronLeft, ChevronDown, Edit2, Loader2, Activity, ArrowUpDown, Calendar, AlertCircle, MessageSquare, Wand2, ToggleLeft, ToggleRight } from 'lucide-react';
+
+import ProjectModal from '../components/ProjectModal';
+import { getProjectSummaryPrompt } from '../fine-tunning/summary/report-prompt';
 
 // Required Template Columns
 const TEMPLATE_COLUMNS: Column[] = [
@@ -23,7 +27,7 @@ const TEMPLATE_COLUMNS: Column[] = [
 const BoardPage: React.FC = () => {
   const { projectId, taskId } = useParams();
   const navigate = useNavigate();
-  const { projects, setProjects, prioritySettings, setPrioritySettings, isAIEnabled, disableAI, activeModel } = useApp();
+  const { projects, setProjects, prioritySettings, setPrioritySettings, isAIEnabled, toggleAI, disableAI, activeModel, isChatOpen, setIsChatOpen, setCurrentContext, boardRefreshTrigger } = useApp();
   
   // Ref to block deep link effect during save operations to prevent modal reopening
   const isSavingRef = React.useRef(false);
@@ -40,6 +44,11 @@ const BoardPage: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
+  const [isTogglingAI, setIsTogglingAI] = useState(false);
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const { isAILoading } = useApp();
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryContent, setSummaryContent] = useState('');
   
@@ -48,6 +57,16 @@ const BoardPage: React.FC = () => {
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<Column | null>(null);
   
+  // Quick Settings (API Base)
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const [apiBaseDraft, setApiBaseDraft] = useState('');
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const API_BASE_STORAGE_KEY = 'koge_api_base_url';
+  const defaultApiBaseUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin;
+  }, []);
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterProject, setFilterProject] = useState('All');
@@ -70,12 +89,30 @@ const BoardPage: React.FC = () => {
           console.log(`[BoardPage] Project NOT found.`);
           if (projects.length > 0) {
               console.warn(`[BoardPage] Redirecting to home because project list is populated but ID not found.`);
-          navigate('/');
+              navigate('/');
           } else {
              console.log(`[BoardPage] Waiting for projects to load...`);
           }
       }
   }, [projectId, projects, navigate]);
+
+  // Handle Quick Settings Menu Side-Effects
+  useEffect(() => {
+    if (!isSettingsMenuOpen || typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    setApiBaseDraft(stored);
+  }, [isSettingsMenuOpen]);
+
+  useEffect(() => {
+    if (!isSettingsMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
+        setIsSettingsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSettingsMenuOpen]);
 
   // 2. Load Board Data
   useEffect(() => {
@@ -90,6 +127,16 @@ const BoardPage: React.FC = () => {
             ]);
             setTasks(pTasks || []);
             setColumns((pColumns && pColumns.length > 0) ? pColumns : TEMPLATE_COLUMNS);
+            
+            // Update Context for AI
+            if (currentProject) {
+                setCurrentContext({
+                    projectId: currentProject.id,
+                    projectName: currentProject.name,
+                    tasks: pTasks || [],
+                    columns: (pColumns && pColumns.length > 0) ? pColumns : TEMPLATE_COLUMNS
+                });
+            }
         } catch (err) {
             console.error("Failed to load project data", err);
         } finally {
@@ -97,7 +144,7 @@ const BoardPage: React.FC = () => {
         }
     };
     loadBoardData();
-  }, [currentProject]);
+  }, [currentProject, boardRefreshTrigger]);
 
   // 3. Handle Deep Linking for Task (Open Modal)
   useEffect(() => {
@@ -124,20 +171,42 @@ const BoardPage: React.FC = () => {
   useEffect(() => {
     if (currentProject && !boardLoading) {
         db.saveTasks(currentProject.id, tasks);
+        // Update Context Live
+        setCurrentContext(prev => prev ? { ...prev, tasks } : null);
     }
-  }, [tasks, currentProject, boardLoading]);
+  }, [tasks, currentProject, boardLoading, setCurrentContext]);
 
   useEffect(() => {
     if (currentProject && !boardLoading) {
         db.saveColumns(currentProject.id, columns);
+        // Update Context Live
+        setCurrentContext(prev => prev ? { ...prev, columns } : null);
     }
-  }, [columns, currentProject, boardLoading]);
+  }, [columns, currentProject, boardLoading, setCurrentContext]);
 
   // Computed lists
   const uniqueProjects = useMemo(() => ['All', ...new Set(tasks.map(t => t.project).filter(Boolean))], [tasks]);
   const uniqueCategories = useMemo(() => ['All', ...new Set(tasks.map(t => t.category).filter(Boolean))], [tasks]);
 
   // --- Handlers ---
+
+  const normalizeApiBase = (value: string) => value.replace(/\/+$/, '');
+
+  const handleSaveApiBase = () => {
+    if (typeof window === 'undefined') return;
+    const previous = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    const next = normalizeApiBase(apiBaseDraft.trim());
+    if (next) {
+      window.localStorage.setItem(API_BASE_STORAGE_KEY, next);
+    } else {
+      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    }
+    const changed = previous !== next;
+    setIsSettingsMenuOpen(false);
+    if (changed) {
+      window.location.reload();
+    }
+  };
 
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'createdAt'> | Task) => {
     if ('id' in taskData) {
@@ -221,6 +290,19 @@ const BoardPage: React.FC = () => {
 
   const handleUpdateTaskPriority = (taskId: string, newPriority: Priority) => {
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, priority: newPriority } : t));
+  };
+
+  const handleUpdateProject = (updatedData: Pick<Project, 'id' | 'name' | 'description' | 'color'>) => {
+      if (currentProject) {
+          const updatedProject = { ...currentProject, ...updatedData };
+          setCurrentProject(updatedProject);
+          
+          // Update in global list
+          setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+          
+          // Persist to DB immediately
+          db.saveProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
+      }
   };
 
   // Column Handlers
@@ -348,47 +430,22 @@ const BoardPage: React.FC = () => {
           ).length;
 
           // 2. Construct Prompt
-          const prompt = `Act as a Senior Project Manager and Agile Coach. Analyze the provided project data to generate a comprehensive "Project Status & Health Report".
-          
-          Project Name: ${currentProject?.name}
-          Total Tasks: ${totalTasks}
-          
-          Task Distribution by Status:
-          ${JSON.stringify(byStatus, null, 2)}
-          
-          Priority Breakdown:
-          - High Priority: ${byPriority.High}
-          - Medium Priority: ${byPriority.Medium}
-          - Low Priority: ${byPriority.Low}
-          
-          Critical Metrics:
-          - High Priority NOT Completed: ${highPriorityPending}
-          - Overdue Tasks: ${overdueTasks}
-          
-          Output Requirement:
-          - Tone: Highly Professional, Objective, Detail-Oriented, Strategic.
-          - Format: Strict Markdown.
-          - START DIRECTLY with the content. Do NOT include phrases like "Okay, here's the analysis" or "Here is the report".
-
-          Structure:
-          1. **Executive Summary**: A high-level assessment of project health (Healthy / At Risk / Critical) with justification.
-          2. **Key Metrics Analysis**:
-             - Completion Rate Analysis.
-             - Priority Distribution Insights.
-             - Bottleneck Identification (based on status distribution).
-          3. **Critical Risks & Blockers**:
-             - Deep dive into High Priority pending tasks.
-             - Overdue item analysis.
-          4. **Strategic Recommendations**:
-             - 3-5 specific, actionable steps to improve velocity or unblock critical paths.
-             - Resource allocation suggestions if applicable (based on implied workload).
-
-          Ensure the report is ready for stakeholder presentation.`;
+          const prompt = getProjectSummaryPrompt(
+              currentProject?.name || 'Unknown Project',
+              totalTasks,
+              byStatus,
+              byPriority,
+              highPriorityPending,
+              overdueTasks
+          );
 
           // 3. Call AI
-          const response = await fetch('http://localhost:3000/api/ai/generate', {
+          const response = await fetch('/api/ai/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': (useApp as any)().ollamaEndpoint // Quick fix for scope
+              },
               body: JSON.stringify({ prompt, model: activeModel })
           });
 
@@ -414,18 +471,24 @@ const BoardPage: React.FC = () => {
       }
   };
 
+  useEffect(() => {
+      // Cleanup context when leaving board
+      return () => setCurrentContext(null);
+  }, [setCurrentContext]);
+
   if (!currentProject) {
       return (
           <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
               <Loader2 className="animate-spin text-blue-600 mb-4" size={48} />
               <h2 className="text-xl font-bold text-gray-800">Loading Project...</h2>
               <p className="text-gray-500 mt-2">If this takes too long, the project might not exist.</p>
-              <button 
-                  onClick={() => navigate('/')}
-                  className="mt-6 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                  Return to Dashboard
-              </button>
+        <button 
+          disabled={isAILoading}
+          onClick={() => !isAILoading && navigate('/')}
+          className={`mt-6 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          Return to Dashboard
+        </button>
           </div>
       );
   }
@@ -433,26 +496,90 @@ const BoardPage: React.FC = () => {
   return (
     <>
       {/* Header */}
-      <header className="app-header bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between shadow-sm z-10 gap-4">
+      <header className="app-header bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between shadow-sm z-10 gap-4 min-h-[73px]">
         <div className="flex items-center gap-3">
             <button 
-                onClick={() => navigate('/')}
-                className="btn-back p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-blue-600 transition"
-                title="Back to Projects"
+                onClick={() => !isAILoading && navigate('/')}
+                className={`btn-back p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-blue-600 transition ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={isAILoading ? "AI is processing..." : "Back to Projects"}
+                disabled={isAILoading}
             >
                 <ChevronLeft size={24} />
             </button>
-            <div className="flex flex-col group project-info">
+            <div className="flex flex-col group project-info relative">
                 <div className="flex items-center gap-2">
-                    <h1 className="project-title text-xl font-bold text-gray-800 leading-none">{currentProject.name}</h1>
                     <button 
-                        className="btn-edit-project text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        disabled={isAILoading}
+                        onClick={() => !isAILoading && setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+                        className={`flex items-center gap-2 text-left hover:bg-gray-100 px-2 py-1 -ml-2 rounded-lg transition-colors group/title ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        <h1 className="project-title text-xl font-bold text-gray-800 leading-none">
+                            {currentProject.name}
+                        </h1>
+                        <ChevronDown 
+                            size={18} 
+                            className={`text-gray-400 group-hover/title:text-blue-500 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`} 
+                        />
+                    </button>
+                    <button 
+                        onClick={() => setIsProjectModalOpen(true)}
+                        className="btn-edit-project text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-100"
                         title="Edit Project Details"
                     >
                         <Edit2 size={16} />
                     </button>
                 </div>
                 <span className="project-desc text-xs text-gray-500 mt-1">{currentProject.description}</span>
+
+                {/* Project Switcher Dropdown */}
+                {isProjectDropdownOpen && (
+                    <>
+                        <div 
+                            className="fixed inset-0 z-20" 
+                            onClick={() => setIsProjectDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-30 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-50 mb-1">
+                                Switch Board
+                            </div>
+                            <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                                {projects.map((proj) => (
+                                    <button
+                                        key={proj.id}
+                                        disabled={isAILoading}
+                                        onClick={() => {
+                                            if (isAILoading) return;
+                                            navigate(`/board/${proj.id}`);
+                                            setIsProjectDropdownOpen(false);
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+                                            proj.id === currentProject.id 
+                                                ? 'bg-blue-50 text-blue-700 font-bold' 
+                                                : 'text-gray-600 hover:bg-gray-50'
+                                        } ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                        <div className={`w-2 h-2 rounded-full ${proj.id === currentProject.id ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                                        <span className="truncate">{proj.name}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="border-t border-gray-50 mt-1 pt-1">
+                                <button
+                                    disabled={isAILoading}
+                                    onClick={() => {
+                                        if (isAILoading) return;
+                                        navigate('/');
+                                        setIsProjectDropdownOpen(false);
+                                    }}
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <Layout size={14} />
+                                    <span>All Boards Dashboard</span>
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
 
@@ -485,10 +612,47 @@ const BoardPage: React.FC = () => {
                 </button>
             </div>
 
+                {/* AI Toggle Controls */}
+                <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+                    <button 
+                        onClick={async () => {
+                            if (!isAIEnabled) {
+                                setIsTogglingAI(true);
+                                setIsAISettingsOpen(true);
+                                setIsTogglingAI(false);
+                                return; 
+                            }
+                            setIsTogglingAI(true);
+                            await toggleAI();
+                            setIsTogglingAI(false);
+                        }}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-all font-bold border text-xs ${
+                            isAIEnabled 
+                                ? 'bg-white text-blue-700 border-blue-200 shadow-sm' 
+                                : 'bg-transparent text-gray-500 border-transparent hover:bg-gray-200'
+                        }`}
+                        disabled={isTogglingAI}
+                        title={isAIEnabled ? "Disable AI" : "Enable AI"}
+                    >
+                        {isTogglingAI ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                        <span className="hidden sm:inline">AI</span>
+                        {isAIEnabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                    </button>
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsSettingsMenuOpen(prev => !prev)}
+                            className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
+                            title="Quick Settings"
+                        >
+                            <Settings size={16} />
+                        </button>
+                    </div>
+                </div>
+
                 {isAIEnabled && (
                     <button 
                         onClick={openSummary}
-                        className="btn-summary flex items-center gap-2 bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 px-3 py-2 rounded-lg text-sm font-medium transition"
+                        className="btn-summary flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-2 rounded-lg text-sm font-medium transition"
                         title="AI Project Summary"
                     >
                         <Activity size={18} />
@@ -496,13 +660,67 @@ const BoardPage: React.FC = () => {
                     </button>
                 )}
 
-            <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="btn-settings p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                title="Settings"
-            >
-                <Settings size={20} />
-            </button>
+                {isAIEnabled && (
+                    <button 
+                        onClick={() => setIsChatOpen(!isChatOpen)}
+                        className={`btn-chat flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition border ${
+                            isChatOpen 
+                                ? 'bg-blue-600 text-white border-blue-600' 
+                                : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200'
+                        }`}
+                        title="AI Chatbot"
+                    >
+                        <MessageSquare size={18} />
+                        <span className="hidden sm:inline">AI Chat</span>
+                    </button>
+                )}
+
+            <div className="relative" ref={settingsMenuRef}>
+                <button 
+                    onClick={() => setIsSettingsMenuOpen(prev => !prev)}
+                    className="btn-settings p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                    title="Settings"
+                >
+                    <Settings size={20} />
+                </button>
+                {isSettingsMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg p-4 z-50">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                            Quick Settings
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-medium text-gray-600">API Base Domain</label>
+                            <input
+                                type="url"
+                                value={apiBaseDraft}
+                                onChange={(e) => setApiBaseDraft(e.target.value)}
+                                placeholder="https://abcd.ngrok-free.app"
+                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                            <p className="text-[10px] text-gray-500 leading-tight">
+                                Kosongkan untuk default ({defaultApiBaseUrl}/api).
+                            </p>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                            <button
+                                onClick={() => {
+                                    setIsSettingsMenuOpen(false);
+                                    setIsSettingsOpen(true);
+                                }}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                            >
+                                More settings
+                            </button>
+                            <button
+                                onClick={handleSaveApiBase}
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+                            >
+                                Save & Reload
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             <button 
                 onClick={handleNewTask}
@@ -661,9 +879,20 @@ const BoardPage: React.FC = () => {
         onRefresh={handleGenerateSummary}
         projectName={currentProject.name}
       />
+
+      <ProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        onSave={handleUpdateProject}
+        initialProject={currentProject}
+      />
+
+      <AISettingsModal 
+        isOpen={isAISettingsOpen}
+        onClose={() => setIsAISettingsOpen(false)}
+      />
     </>
   );
 };
 
 export default BoardPage;
-

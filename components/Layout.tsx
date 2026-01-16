@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { Loader2 } from 'lucide-react';
 import { Outlet } from 'react-router-dom';
+import ChatBot from './ChatBot';
 
 const Layout: React.FC = () => {
   const { appLoading } = useApp();
@@ -18,8 +19,11 @@ const Layout: React.FC = () => {
   }
 
   return (
-    <div className="app-root flex flex-col h-screen bg-slate-50">
-        <Outlet />
+    <div className="app-root flex h-screen bg-slate-50 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto relative">
+            <Outlet />
+        </div>
+        <ChatBot />
     </div>
   );
 };

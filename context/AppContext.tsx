@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Project, PrioritySettings, Priority, Task, Column } from '../types';
+import { Project, PrioritySettings, Priority, Task, Column, ProjectContext } from '../types';
 import { db } from '../services/db';
 
 interface AppContextType {
@@ -18,6 +18,16 @@ interface AppContextType {
   addAIModel: (model: string) => void;
   removeAIModel: (model: string) => void;
   setActiveAIModel: (model: string) => void;
+  ollamaEndpoint: string;
+  setOllamaEndpoint: (endpoint: string) => void;
+  isChatOpen: boolean;
+  setIsChatOpen: (isOpen: boolean) => void;
+  isAILoading: boolean;
+  setIsAILoading: (isLoading: boolean) => void;
+  currentContext: ProjectContext | null;
+  setCurrentContext: (context: ProjectContext | null) => void;
+  boardRefreshTrigger: number;
+  notifyBoardRefresh: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -122,7 +132,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isAIEnabled, setIsAIEnabled] = useState(false);
   const [aiModels, setAiModels] = useState<string[]>([]);
   const [activeModel, setActiveModel] = useState<string>('');
+  const [ollamaEndpoint, setOllamaEndpoint] = useState<string>('http://localhost:11434');
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isAILoading, setIsAILoading] = useState(false);
+  const [currentContext, setCurrentContext] = useState<ProjectContext | null>(null);
+  const [boardRefreshTrigger, setBoardRefreshTrigger] = useState(0);
+
+  const notifyBoardRefresh = useCallback(() => {
+      setBoardRefreshTrigger(prev => prev + 1);
+  }, []);
 
   const disableAI = () => {
       setIsAIEnabled(false);
@@ -135,31 +154,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const fetchModels = useCallback(async (): Promise<string[]> => {
       try {
-          const response = await fetch('http://localhost:3000/api/ai/models');
+          const response = await fetch('/api/ai/models', {
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint 
+              }
+          });
           if (!response.ok) {
             setAiModels([]);
             return [];
           }
           const data = await response.json();
-          // Ollama returns { models: [{ name: '...', ... }] }
           if (data && data.models && Array.isArray(data.models)) {
               const modelNames = data.models.map((m: any) => m.name);
               
               setAiModels(prev => {
-                // Avoid unnecessary updates to prevent re-renders
                 if (JSON.stringify(prev) === JSON.stringify(modelNames)) return prev;
                 return modelNames;
               });
 
-              // If current active model is not in the list (and list is not empty), select the first one
-              // Use functional update or ref to avoid dependency loop, but for now just check against current state.
-              // Note: activeModel is in dependency array, so this function is recreated when it changes, 
-              // which re-runs effect in modal. This is okay as long as we don't change activeModel unnecessarily.
+              // DO NOT auto-select the first model if we already have an active one
+              // This prevents overwriting the saved model from DB
               setActiveModel(currentActive => {
-                  if (modelNames.length > 0 && (!currentActive || !modelNames.includes(currentActive))) {
+                  if (modelNames.length > 0 && !currentActive) {
                       return modelNames[0];
-                  } else if (modelNames.length === 0) {
-                      return '';
                   }
                   return currentActive;
               });
@@ -173,7 +191,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAiModels([]);
           return [];
       }
-  }, []);
+  }, [ollamaEndpoint]);
 
   const toggleAI = async (): Promise<boolean> => {
       if (isAIEnabled) {
@@ -195,9 +213,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               const controller = new AbortController();
               const timeoutId = setTimeout(() => controller.abort(), 2000);
               
-              const response = await fetch('http://localhost:3000/api/ai/generate', {
+            const response = await fetch('/api/ai/generate', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 
+                      'Content-Type': 'application/json',
+                      'x-ollama-endpoint': ollamaEndpoint
+                  },
                   body: JSON.stringify({ prompt: "ping", model: activeModel })
               });
               
@@ -250,9 +271,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ]);
             
             if (fetchedSettings) setPrioritySettings(fetchedSettings);
+            
+            let loadedActiveModel = '';
             if (fetchedAISettings) {
-                setAiModels(fetchedAISettings.models);
-                setActiveModel(fetchedAISettings.active);
+                setAiModels(fetchedAISettings.models || []);
+                loadedActiveModel = fetchedAISettings.active || '';
+                setActiveModel(loadedActiveModel);
+                setIsAIEnabled(!!fetchedAISettings.enabled);
+                if (fetchedAISettings.endpoint) setOllamaEndpoint(fetchedAISettings.endpoint);
+            }
+
+            // AUTO-ACTIVATION LOGIC:
+            // 1. Fetch available models from Ollama
+            const availableModels = await fetchModels();
+            
+            // 2. If Ollama is active and has models
+            if (availableModels.length > 0) {
+                const modelToUse = loadedActiveModel || availableModels[0];
+                
+                // 3. Verify if the saved model (or first available) is actually present
+                if (availableModels.includes(modelToUse)) {
+                    console.log(`[AppContext] Ollama detected with model "${modelToUse}". Auto-activating AI.`);
+                    setActiveModel(modelToUse);
+                    setIsAIEnabled(true); // Automatically turn on if Ollama is ready
+                }
             }
             
             console.log("[AppContext] Initial projects:", fetchedProjects);
@@ -314,12 +356,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (!appLoading && isInitialized) {
-        db.saveAISettings({ models: aiModels, active: activeModel });
+        db.saveAISettings({ 
+            models: aiModels, 
+            active: activeModel,
+            enabled: isAIEnabled,
+            endpoint: ollamaEndpoint
+        });
     }
-  }, [aiModels, activeModel, appLoading, isInitialized]);
+  }, [aiModels, activeModel, isAIEnabled, ollamaEndpoint, appLoading, isInitialized]);
 
   return (
-    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel }}>
+    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint, setOllamaEndpoint, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, boardRefreshTrigger, notifyBoardRefresh }}>
       {children}
     </AppContext.Provider>
   );
