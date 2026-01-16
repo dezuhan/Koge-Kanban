@@ -8,6 +8,7 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 
 *   **Project Management**: Create multiple projects/workspaces.
 *   **Kanban Board**: Drag-and-drop tasks between custom columns.
+*   **Hybrid API Mode**: Use any backend endpoint (Localhost, Ngrok, or Custom Domain) directly from the UI.
 *   **Integrated AI Assistant (Optional)**: 
     *   **Admin AI**: AI can perform CRUD operations (create, update, delete) directly on your board.
     *   **Global Context**: Tag boards with `@[board name]` to let AI read data from other projects.
@@ -72,9 +73,22 @@ Since browsers block access from HTTPS (Vercel) to HTTP (Localhost), you need a 
 
 ### 6. Connect via Browser
 *   Navigate to [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
-*   Open **AI Settings** and paste your Ngrok URL into the **Ollama Endpoint URL** field.
+*   **API Connection**: 
+    *   Click the **Gear Icon (⚙️)** on the Dashboard or Board page.
+    *   Paste your Ngrok URL (e.g., `https://database-abcd.ngrok-free.app`) into the **API Base Domain** field.
+    *   Click **Save & Reload**.
+*   **AI Connection**: 
+    *   Open **AI Settings** and paste your Ollama Ngrok URL into the **Ollama Endpoint URL** field.
 *   Allow local network access when prompted.
-*   **Note**: Your data is saved locally to MariaDB via the backend running on `localhost:3000`.
+*   **Note**: Your data is saved locally to MariaDB via the backend tunnel.
+
+## Hybrid Mode & Remote Access
+
+Koge Kanban supports a flexible "Hybrid Mode" where you can point the frontend to any backend:
+*   **Localhost**: Default for local development (`http://localhost:3000`).
+*   **Local IP**: Automatic detection for mobile testing on the same network (`http://192.168.x.x:3000`).
+*   **Remote Tunnel**: Use Ngrok or Cloudflare Tunnels for access from anywhere.
+*   **URL Override**: Quickly switch endpoints by adding `?apiBase=https://your-link.com` to the URL.
 
 ## Installation Options
 
