@@ -2,11 +2,40 @@ import { Task, Column, PrioritySettings, Project } from '../types';
 
 const PROJECTS_KEY = 'kanban_projects';
 const SETTINGS_KEY = 'kanban_settings';
+const API_BASE_STORAGE_KEY = 'koge_api_base_url';
 
-// Dynamic API URL determination
+const normalizeBase = (value: string) => value.replace(/\/+$/, '');
+
+const withApiPath = (base: string) => {
+    const normalized = normalizeBase(base);
+    return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+};
+
+// Dynamic API URL determination (hybrid local + remote)
 const getApiBaseUrl = () => {
-    // Check if running in browser environment
+    // 1) Build-time override (Vite)
+    const envBase = typeof import.meta !== 'undefined'
+        ? normalizeBase((import.meta as any).env?.VITE_API_BASE_URL || '')
+        : '';
+    if (envBase) {
+        return withApiPath(envBase);
+    }
+
+    // 2) Runtime override (query param > localStorage)
     if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const queryBase = params.get('apiBase');
+        if (queryBase) {
+            const normalized = normalizeBase(queryBase);
+            window.localStorage.setItem(API_BASE_STORAGE_KEY, normalized);
+            return withApiPath(normalized);
+        }
+
+        const storedBase = window.localStorage.getItem(API_BASE_STORAGE_KEY);
+        if (storedBase) {
+            return withApiPath(storedBase);
+        }
+
         const hostname = window.location.hostname;
         
         // If localhost or 127.0.0.1, assume standard local dev port 3000
@@ -15,14 +44,15 @@ const getApiBaseUrl = () => {
         }
         
         // If accessing via local network IP (e.g., 192.168.x.x), try to hit port 3000 on that same IP
-        // This allows testing on mobile devices on the same network
         if (hostname.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) {
             return `http://${hostname}:3000/api`;
         }
+
+        // For any other hostname (e.g. ngrok/custom domain), use same-origin /api
+        return `${window.location.origin}/api`;
     }
     
     // Fallback (e.g. for Vercel deployment where backend might not be available)
-    // You should replace this with your production backend URL if you have one
     return 'http://localhost:3000/api';
 };
 
@@ -49,7 +79,8 @@ const apiAdapter = {
              headers: {
                  'Cache-Control': 'no-cache, no-store, must-revalidate',
                  'Pragma': 'no-cache',
-                 'Expires': '0'
+                 'Expires': '0',
+                 'ngrok-skip-browser-warning': 'true'
              }
          });
          clearTimeout(id);
@@ -78,7 +109,10 @@ const apiAdapter = {
       try {
         const response = await fetch(`${API_URL}/${key}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
             body: JSON.stringify(data),
             signal: controller.signal
         });
@@ -103,6 +137,9 @@ const apiAdapter = {
       try {
         const response = await fetch(`${API_URL}/${key}`, {
             method: 'DELETE',
+            headers: {
+                'ngrok-skip-browser-warning': 'true'
+            },
             signal: controller.signal
         });
         clearTimeout(id);

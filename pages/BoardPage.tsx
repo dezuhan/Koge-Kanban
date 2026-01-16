@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { db } from '../services/db';
@@ -47,8 +47,8 @@ const BoardPage: React.FC = () => {
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
-    const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-    const { isAILoading } = useApp();
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const { isAILoading } = useApp();
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryContent, setSummaryContent] = useState('');
   
@@ -57,6 +57,16 @@ const BoardPage: React.FC = () => {
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<Column | null>(null);
   
+  // Quick Settings (API Base)
+  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
+  const [apiBaseDraft, setApiBaseDraft] = useState('');
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+  const API_BASE_STORAGE_KEY = 'koge_api_base_url';
+  const defaultApiBaseUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin;
+  }, []);
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterProject, setFilterProject] = useState('All');
@@ -85,6 +95,24 @@ const BoardPage: React.FC = () => {
           }
       }
   }, [projectId, projects, navigate]);
+
+  // Handle Quick Settings Menu Side-Effects
+  useEffect(() => {
+    if (!isSettingsMenuOpen || typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    setApiBaseDraft(stored);
+  }, [isSettingsMenuOpen]);
+
+  useEffect(() => {
+    if (!isSettingsMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
+        setIsSettingsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSettingsMenuOpen]);
 
   // 2. Load Board Data
   useEffect(() => {
@@ -161,6 +189,24 @@ const BoardPage: React.FC = () => {
   const uniqueCategories = useMemo(() => ['All', ...new Set(tasks.map(t => t.category).filter(Boolean))], [tasks]);
 
   // --- Handlers ---
+
+  const normalizeApiBase = (value: string) => value.replace(/\/+$/, '');
+
+  const handleSaveApiBase = () => {
+    if (typeof window === 'undefined') return;
+    const previous = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
+    const next = normalizeApiBase(apiBaseDraft.trim());
+    if (next) {
+      window.localStorage.setItem(API_BASE_STORAGE_KEY, next);
+    } else {
+      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    }
+    const changed = previous !== next;
+    setIsSettingsMenuOpen(false);
+    if (changed) {
+      window.location.reload();
+    }
+  };
 
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'createdAt'> | Task) => {
     if ('id' in taskData) {
@@ -592,13 +638,15 @@ const BoardPage: React.FC = () => {
                         <span className="hidden sm:inline">AI</span>
                         {isAIEnabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
                     </button>
-                    <button
-                        onClick={() => setIsAISettingsOpen(true)}
-                        className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
-                        title="AI Settings"
-                    >
-                        <Settings size={16} />
-                    </button>
+                    <div className="relative">
+                        <button
+                            onClick={() => setIsSettingsMenuOpen(prev => !prev)}
+                            className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
+                            title="Quick Settings"
+                        >
+                            <Settings size={16} />
+                        </button>
+                    </div>
                 </div>
 
                 {isAIEnabled && (
@@ -627,13 +675,52 @@ const BoardPage: React.FC = () => {
                     </button>
                 )}
 
-            <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="btn-settings p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                title="Settings"
-            >
-                <Settings size={20} />
-            </button>
+            <div className="relative" ref={settingsMenuRef}>
+                <button 
+                    onClick={() => setIsSettingsMenuOpen(prev => !prev)}
+                    className="btn-settings p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                    title="Settings"
+                >
+                    <Settings size={20} />
+                </button>
+                {isSettingsMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg p-4 z-50">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                            Quick Settings
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-xs font-medium text-gray-600">API Base Domain</label>
+                            <input
+                                type="url"
+                                value={apiBaseDraft}
+                                onChange={(e) => setApiBaseDraft(e.target.value)}
+                                placeholder="https://abcd.ngrok-free.app"
+                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+                            />
+                            <p className="text-[10px] text-gray-500 leading-tight">
+                                Kosongkan untuk default ({defaultApiBaseUrl}/api).
+                            </p>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                            <button
+                                onClick={() => {
+                                    setIsSettingsMenuOpen(false);
+                                    setIsSettingsOpen(true);
+                                }}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                            >
+                                More settings
+                            </button>
+                            <button
+                                onClick={handleSaveApiBase}
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+                            >
+                                Save & Reload
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             <button 
                 onClick={handleNewTask}
