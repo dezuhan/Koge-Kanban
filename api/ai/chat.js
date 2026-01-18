@@ -4,9 +4,21 @@ export default async function handler(req, res) {
   }
 
   const { messages, model, options } = req.body;
-  // SECURITY FIX: Use environment variable for Ollama host
-  const ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-  // Ensure host doesn't have trailing slash
+  
+  // LOGIC FIX: Restore hybrid mode support
+  // If server admin set OLLAMA_HOST, use it.
+  // Otherwise, allow client to specify their tunnel (Hybrid Mode).
+  // If neither, fallback to localhost.
+  const serverHost = process.env.OLLAMA_HOST;
+  const clientHost = req.headers['x-ollama-endpoint'];
+  
+  let ollamaHost = serverHost || clientHost || 'http://127.0.0.1:11434';
+  
+  // Basic URL validation
+  if (!ollamaHost.startsWith('http')) {
+      ollamaHost = 'http://127.0.0.1:11434';
+  }
+  
   const cleanHost = ollamaHost.endsWith('/') ? ollamaHost.slice(0, -1) : ollamaHost;
 
   const targetModel = model || "gemma3:4b";

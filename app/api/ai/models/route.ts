@@ -5,8 +5,16 @@ import { NextResponse } from 'next/server';
  * Proxies request to Ollama to get list of installed models.
  */
 export async function GET(request: Request) {
-  // SECURITY FIX: Use environment variable for Ollama host
-  const ollamaEndpoint = process.env.OLLAMA_HOST || 'http://localhost:11434';
+  // LOGIC FIX: Restore hybrid mode support
+  const serverHost = process.env.OLLAMA_HOST;
+  const clientHost = request.headers.get('x-ollama-endpoint');
+  
+  let ollamaEndpoint = serverHost || clientHost || 'http://localhost:11434';
+  
+  if (!ollamaEndpoint.startsWith('http')) {
+      ollamaEndpoint = 'http://localhost:11434';
+  }
+
   const cleanEndpoint = ollamaEndpoint.endsWith('/') ? ollamaEndpoint.slice(0, -1) : ollamaEndpoint;
   
   console.log(`[Vercel API] Proxying models request to: ${cleanEndpoint}/api/tags`);

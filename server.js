@@ -20,7 +20,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // React scripts might need unsafe-inline/eval in dev
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", process.env.OLLAMA_HOST || "http://127.0.0.1:11434"],
+      connectSrc: ["'self'", "*"], // Allow connections to any endpoint for Hybrid mode (needed for client-side API base override)
     },
   },
 }));
@@ -34,14 +34,22 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // CORS Configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'];
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'https://koge-kanban.vercel.app'];
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check allowed origins
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
     }
+    
+    // In Hybrid Mode, user might connect from a dynamic Ngrok URL or local IP that isn't in allowlist.
+    // For a "Self Hosted" tool intended for personal use, strict CORS might block legitimate use cases.
+    // We log the blocked attempt for debugging.
+    console.warn(`[CORS] Blocked request from origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
@@ -258,12 +266,31 @@ app.delete('/api/data/:key', async (req, res) => {
 const DEFAULT_OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
 /**
- * SECURITY FIX:
- * Only allow host from environment variable or localhost default.
- * Do NOT trust client headers for host destination to prevent SSRF.
+ * Determine valid Ollama host.
+ * Priority:
+ * 1. Environment variable OLLAMA_HOST (Server Admin overrides all)
+ * 2. Client header x-ollama-endpoint (Hybrid mode for users connecting to their own tunnels)
+ *    -> Only allowed if NO server env var is set OR explicit ALLOW_CLIENT_OLLAMA_HOST=true is set.
+ *    -> This restores functionality for the hybrid architecture while keeping safe defaults for pure server deployments.
  */
 const getOllamaHost = (req) => {
-    // Strict mode: Only use server-configured host
+    // If Admin explicitly set a host in ENV, prefer that (Secure Server Mode)
+    // UNLESS the admin explicitly wants to allow client overrides (Hybrid Mode Server)
+    const serverHost = process.env.OLLAMA_HOST;
+    const clientHost = req.headers['x-ollama-endpoint'];
+    const allowClientOverride = process.env.ALLOW_CLIENT_OLLAMA_HOST === 'true';
+
+    if (serverHost && !allowClientOverride) {
+        return serverHost.endsWith('/') ? serverHost.slice(0, -1) : serverHost;
+    }
+
+    if (clientHost) {
+        // Basic sanitization to prevent obvious non-URL payloads
+        if (clientHost.startsWith('http://') || clientHost.startsWith('https://')) {
+             return clientHost.endsWith('/') ? clientHost.slice(0, -1) : clientHost;
+        }
+    }
+
     return DEFAULT_OLLAMA_HOST.endsWith('/') ? DEFAULT_OLLAMA_HOST.slice(0, -1) : DEFAULT_OLLAMA_HOST;
 };
 
@@ -275,7 +302,7 @@ app.get('/api/ai/models', async (req, res) => {
     const ollamaHost = getOllamaHost(req);
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout for external tunnels
         
         const response = await fetch(`${ollamaHost}/api/tags`, { 
             signal: controller.signal 
