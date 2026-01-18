@@ -3,6 +3,25 @@ import { Task, Column, PrioritySettings, Project } from '../types';
 const PROJECTS_KEY = 'kanban_projects';
 const SETTINGS_KEY = 'kanban_settings';
 const API_BASE_STORAGE_KEY = 'koge_api_base_url';
+const GUEST_MODE_KEY = 'koge_guest_mode';
+
+const isGuestMode = () => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(GUEST_MODE_KEY) === 'true';
+};
+
+const localAdapter = {
+    get: async <T>(key: string): Promise<T | null> => {
+        const data = localStorage.getItem(`local_${key}`);
+        return data ? JSON.parse(data) : null;
+    },
+    save: async <T>(key: string, data: T): Promise<void> => {
+        localStorage.setItem(`local_${key}`, JSON.stringify(data));
+    },
+    delete: async (key: string): Promise<void> => {
+        localStorage.removeItem(`local_${key}`);
+    }
+};
 
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 
@@ -171,85 +190,58 @@ const apiAdapter = {
  */
 export const db = {
   // Projects
-  /**
-   * Fetches the list of all projects.
-   * @returns Promise resolving to an array of Project objects or null.
-   */
-  getProjects: async (): Promise<Project[] | null> => apiAdapter.get<Project[]>(`${API_URL}/${PROJECTS_KEY}`),
-  /**
-   * Saves the entire list of projects.
-   * @param projects - Array of Project objects.
-   */
-  saveProjects: async (projects: Project[]) => apiAdapter.save(PROJECTS_KEY, projects),
+  getProjects: async (): Promise<Project[] | null> => {
+    if (isGuestMode()) {
+        return await localAdapter.get<Project[]>(PROJECTS_KEY) || [];
+    }
+    return apiAdapter.get<Project[]>(`${API_URL}/${PROJECTS_KEY}`);
+  },
+  saveProjects: async (projects: Project[]) => 
+    isGuestMode() ? localAdapter.save(PROJECTS_KEY, projects) : apiAdapter.save(PROJECTS_KEY, projects),
 
   // Scoped by Project ID
-  /**
-   * Fetches all tasks associated with a specific project ID.
-   * @param projectId - The unique identifier of the project.
-   * @returns Promise resolving to an array of Task objects or null.
-   */
-  getTasks: async (projectId: string): Promise<Task[] | null> => apiAdapter.get<Task[]>(`${API_URL}/tasks_${projectId}`),
-  /**
-   * Saves tasks for a specific project.
-   * @param projectId - The unique identifier of the project.
-   * @param tasks - Array of Task objects to save.
-   */
-  saveTasks: async (projectId: string, tasks: Task[]) => apiAdapter.save(`tasks_${projectId}`, tasks),
+  getTasks: async (projectId: string): Promise<Task[] | null> => 
+    isGuestMode() ? localAdapter.get<Task[]>(`tasks_${projectId}`) : apiAdapter.get<Task[]>(`${API_URL}/tasks_${projectId}`),
+  saveTasks: async (projectId: string, tasks: Task[]) => 
+    isGuestMode() ? localAdapter.save(`tasks_${projectId}`, tasks) : apiAdapter.save(`tasks_${projectId}`, tasks),
 
   // Global Access
-  /**
-   * Fetches all tasks from ALL projects across the database.
-   * Used for the "Recent Tasks" dashboard to display tasks from all projects sorted by creation date.
-   * @returns Promise resolving to a flat array of all Task objects.
-   */
-  getAllGlobalTasks: async (): Promise<Task[] | null> => apiAdapter.get<Task[]>(GLOBAL_TASKS_URL),
+  getAllGlobalTasks: async (): Promise<Task[] | null> => {
+    if (isGuestMode()) {
+        const projects = await localAdapter.get<Project[]>(PROJECTS_KEY) || [];
+        const allTasks: Task[] = [];
+        for (const p of projects) {
+            const tasks = await localAdapter.get<Task[]>(`tasks_${p.id}`) || [];
+            allTasks.push(...tasks.map(t => ({ ...t, _projectId: p.id })));
+        }
+        return allTasks;
+    }
+    return apiAdapter.get<Task[]>(GLOBAL_TASKS_URL);
+  },
 
-  /**
-   * Fetches columns configuration for a specific project.
-   * @param projectId - The unique identifier of the project.
-   * @returns Promise resolving to an array of Column objects or null.
-   */
-  getColumns: async (projectId: string): Promise<Column[] | null> => apiAdapter.get<Column[]>(`${API_URL}/columns_${projectId}`),
-  /**
-   * Saves columns configuration for a specific project.
-   * @param projectId - The unique identifier of the project.
-   * @param columns - Array of Column objects to save.
-   */
-  saveColumns: async (projectId: string, columns: Column[]) => apiAdapter.save(`columns_${projectId}`, columns),
+  getColumns: async (projectId: string): Promise<Column[] | null> => 
+    isGuestMode() ? localAdapter.get<Column[]>(`columns_${projectId}`) : apiAdapter.get<Column[]>(`${API_URL}/columns_${projectId}`),
+  saveColumns: async (projectId: string, columns: Column[]) => 
+    isGuestMode() ? localAdapter.save(`columns_${projectId}`, columns) : apiAdapter.save(`columns_${projectId}`, columns),
 
   // Global Settings
-  /**
-   * Fetches application-wide settings (e.g., priority colors).
-   * @returns Promise resolving to PrioritySettings object or null.
-   */
-  getSettings: async (): Promise<PrioritySettings | null> => apiAdapter.get<PrioritySettings>(`${API_URL}/${SETTINGS_KEY}`),
-  /**
-   * Saves application-wide settings.
-   * @param settings - The PrioritySettings object.
-   */
-  saveSettings: async (settings: PrioritySettings) => apiAdapter.save(SETTINGS_KEY, settings),
+  getSettings: async (): Promise<PrioritySettings | null> => 
+    isGuestMode() ? localAdapter.get<PrioritySettings>(SETTINGS_KEY) : apiAdapter.get<PrioritySettings>(`${API_URL}/${SETTINGS_KEY}`),
+  saveSettings: async (settings: PrioritySettings) => 
+    isGuestMode() ? localAdapter.save(SETTINGS_KEY, settings) : apiAdapter.save(SETTINGS_KEY, settings),
 
   // AI Settings
-  getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean, endpoint?: string } | null> => apiAdapter.get(`${API_URL}/ai_settings`),
-  saveAISettings: async (settings: { models: string[], active: string, enabled: boolean, endpoint?: string }) => apiAdapter.save('ai_settings', settings),
+  getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean, endpoint?: string } | null> => 
+    isGuestMode() ? localAdapter.get('ai_settings') : apiAdapter.get(`${API_URL}/ai_settings`),
+  saveAISettings: async (settings: { models: string[], active: string, enabled: boolean, endpoint?: string }) => 
+    isGuestMode() ? localAdapter.save('ai_settings', settings) : apiAdapter.save('ai_settings', settings),
   
   // Chat History
-  /**
-   * Fetches chat history for a specific project or global context.
-   * @param contextId - The project ID or 'global'.
-   * @returns Promise resolving to an array of ChatMessage objects or null.
-   */
-  getChatHistory: async (contextId: string): Promise<any[] | null> => apiAdapter.get<any[]>(`${API_URL}/chat_history_${contextId}`),
-  /**
-   * Saves chat history for a specific project or global context.
-   * @param contextId - The project ID or 'global'.
-   * @param messages - Array of ChatMessage objects.
-   */
-  saveChatHistory: async (contextId: string, messages: any[]) => apiAdapter.save(`chat_history_${contextId}`, messages),
+  getChatHistory: async (contextId: string): Promise<any[] | null> => 
+    isGuestMode() ? localAdapter.get(`chat_history_${contextId}`) : apiAdapter.get<any[]>(`${API_URL}/chat_history_${contextId}`),
+  saveChatHistory: async (contextId: string, messages: any[]) => 
+    isGuestMode() ? localAdapter.save(`chat_history_${contextId}`, messages) : apiAdapter.save(`chat_history_${contextId}`, messages),
 
-  /**
-   * Permanently deletes a specific key from the database.
-   * @param key - The key to delete.
-   */
-  deleteKey: async (key: string) => apiAdapter.delete(key),
+  deleteKey: async (key: string) => 
+    isGuestMode() ? localAdapter.delete(key) : apiAdapter.delete(key),
 };

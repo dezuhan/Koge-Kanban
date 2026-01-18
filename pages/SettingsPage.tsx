@@ -28,6 +28,9 @@ const SettingsPage: React.FC = () => {
   const [apiBaseDomain, setApiBaseDomain] = useState(() => {
     return localStorage.getItem('koge_api_base_url') || '';
   });
+  const [isGuestMode, setIsGuestMode] = useState(() => {
+    return localStorage.getItem('koge_guest_mode') === 'true';
+  });
   const [dbPassword, setDbPassword] = useState('');
   const [dbPasswordStatus, setDbPasswordStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
@@ -102,6 +105,19 @@ const SettingsPage: React.FC = () => {
 
     // Reload if API base changed
     window.location.reload();
+  };
+
+  const handleExitGuestMode = () => {
+    globalConfirm({
+      title: 'Exit Guest Mode?',
+      message: 'This will switch back to database mode. Your local guest data will remain in your browser but won\'t be synced to the database.',
+      type: 'warning',
+      confirmText: 'Switch to Database',
+      onConfirm: () => {
+        localStorage.removeItem('koge_guest_mode');
+        window.location.reload();
+      }
+    });
   };
 
   const handleSaveDbPassword = () => {
@@ -294,8 +310,28 @@ const SettingsPage: React.FC = () => {
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Database Connectivity</h3>
                     <p className="text-xs text-gray-500">Manage where your data is stored and synced.</p>
                   </div>
+
+                  {isGuestMode && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-4 animate-in fade-in zoom-in duration-300">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                          <AlertTriangle size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-amber-900">Guest Mode Active</h4>
+                          <p className="text-[10px] text-amber-700">Data is being saved locally to your browser only.</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={handleExitGuestMode}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition-colors shadow-sm"
+                      >
+                        Switch to Database
+                      </button>
+                    </div>
+                  )}
                   
-                  <div className="p-6 bg-blue-50/50 rounded-xl border border-blue-100 space-y-4">
+                  <div className={`p-6 bg-blue-50/50 rounded-xl border border-blue-100 space-y-4 ${isGuestMode ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">API Base Domain</label>
                       <input 
