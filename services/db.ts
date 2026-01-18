@@ -60,6 +60,17 @@ const BASE_URL = getApiBaseUrl();
 const API_URL = `${BASE_URL}/data`;
 const GLOBAL_TASKS_URL = `${BASE_URL}/tasks/global`;
 
+const getAuthToken = () => {
+    if (typeof window === 'undefined') return '';
+    // Prefer sessionStorage to avoid long-lived tokens
+    return window.sessionStorage.getItem('koge_db_token') || window.localStorage.getItem('koge_db_token') || '';
+};
+
+const withAuthHeader = (headers: Record<string, string> = {}) => {
+    const token = getAuthToken();
+    return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
+};
+
 /**
  * Helper utility for making API requests with built-in timeout and error handling.
  */
@@ -76,12 +87,12 @@ const apiAdapter = {
      try {
          const response = await fetch(url, { 
              signal: controller.signal,
-             headers: {
+             headers: withAuthHeader({
                  'Cache-Control': 'no-cache, no-store, must-revalidate',
                  'Pragma': 'no-cache',
                  'Expires': '0',
                  'ngrok-skip-browser-warning': 'true'
-             }
+             })
          });
          clearTimeout(id);
          if (!response.ok) {
@@ -109,10 +120,10 @@ const apiAdapter = {
       try {
         const response = await fetch(`${API_URL}/${key}`, {
             method: 'POST',
-            headers: { 
+            headers: withAuthHeader({ 
                 'Content-Type': 'application/json',
                 'ngrok-skip-browser-warning': 'true'
-            },
+            }),
             body: JSON.stringify(data),
             signal: controller.signal
         });
@@ -137,9 +148,9 @@ const apiAdapter = {
       try {
         const response = await fetch(`${API_URL}/${key}`, {
             method: 'DELETE',
-            headers: {
+            headers: withAuthHeader({
                 'ngrok-skip-browser-warning': 'true'
-            },
+            }),
             signal: controller.signal
         });
         clearTimeout(id);

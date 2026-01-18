@@ -30,6 +30,7 @@ Security controls are enabled; adjust to your deployment:
 - **CORS**: Default allowlist from `ALLOWED_ORIGINS`; dev stays open.
 - **AI Endpoint Control**: Server uses `OLLAMA_HOST` by default. To allow client-provided tunnels (Hybrid Mode), set `ALLOW_CLIENT_OLLAMA_HOST=true` — only if Anda percaya klien/tunnel.
 - **Helmet Headers**: HTTP security headers + CSP (connectSrc longgar untuk hybrid; kencangkan jika tidak perlu).
+- **DB Password Required**: `DB_PASSWORD` wajib diisi; server akan gagal start jika kosong.
 
 ## Private Hybrid Mode (Local Data Gateway)
 

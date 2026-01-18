@@ -28,6 +28,8 @@ const SettingsPage: React.FC = () => {
   const [apiBaseDomain, setApiBaseDomain] = useState(() => {
     return localStorage.getItem('koge_api_base_url') || '';
   });
+  const [dbPassword, setDbPassword] = useState('');
+  const [dbPasswordStatus, setDbPasswordStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
   const [newModelName, setNewModelName] = useState('');
 
@@ -73,6 +75,57 @@ const SettingsPage: React.FC = () => {
 
     // Reload if API base changed
     window.location.reload();
+  };
+
+  const handleSaveDbPassword = () => {
+    const trimmed = dbPassword.trim();
+    if (!trimmed) {
+      setDbPasswordStatus('fail');
+      return;
+    }
+
+    setDbPasswordStatus('checking');
+    // Use configured API base (same as data endpoints) so it works in custom domains/tunnels
+    const storedApiBase = (localStorage.getItem('koge_api_base_url') || '').replace(/\/+$/, '');
+    const authUrl = storedApiBase ? `${storedApiBase}/auth/check-password` : '/api/auth/check-password';
+
+    fetch(authUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: trimmed })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data?.ok) {
+        // Store token in sessionStorage (prefer not to persist long-term)
+        if (data.token) {
+          sessionStorage.setItem('koge_db_token', data.token);
+          localStorage.setItem('koge_db_token', data.token); // fallback if session is lost; remove if you want shorter life
+        }
+        setDbPasswordStatus('ok');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1200);
+      } else {
+        sessionStorage.removeItem('koge_db_token');
+        localStorage.removeItem('koge_db_token');
+        setDbPasswordStatus('fail');
+        globalAlert({
+          title: 'Password Mismatch',
+          message: 'Password tidak cocok dengan konfigurasi server. Harap masukkan password yang benar.',
+          type: 'danger'
+        });
+      }
+    })
+    .catch(() => {
+      setDbPasswordStatus('fail');
+      sessionStorage.removeItem('koge_db_token');
+      localStorage.removeItem('koge_db_token');
+      globalAlert({
+        title: 'Validation Failed',
+        message: 'Gagal memvalidasi password. Pastikan server berjalan dan coba lagi.',
+        type: 'danger'
+      });
+    });
   };
 
   const handleResetColors = () => {
@@ -234,6 +287,33 @@ const SettingsPage: React.FC = () => {
                         <AlertTriangle size={12} className="shrink-0 mt-0.5" />
                         <span>* Default: http://localhost:5173/api. Use this if accessing your database via Ngrok/Tunnel from other devices. Changing this will reload the application.</span>
                       </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Database Password (for session token)</label>
+                      <input
+                        type="password"
+                        value={dbPassword}
+                        onChange={(e) => setDbPassword(e.target.value)}
+                        onBlur={handleSaveDbPassword}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveDbPassword()}
+                        placeholder="Enter DB password (validated server-side)"
+                        className="w-full text-sm px-4 py-2.5 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
+                        autoComplete="new-password"
+                      />
+                      <div className="flex items-start gap-2 text-[10px] text-blue-700 italic mt-2 bg-blue-100/50 p-2 rounded-md">
+                        <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                        <span>Password tidak disimpan; server mengeluarkan token sesi jika cocok dengan konfigurasi. Token disimpan sementara di browser.</span>
+                      </div>
+                      {dbPasswordStatus === 'checking' && (
+                        <div className="text-[10px] text-blue-600 font-semibold">Memeriksa password...</div>
+                      )}
+                      {dbPasswordStatus === 'ok' && (
+                        <div className="text-[10px] text-green-600 font-semibold">Password cocok.</div>
+                      )}
+                      {dbPasswordStatus === 'fail' && (
+                        <div className="text-[10px] text-red-600 font-semibold">Password salah atau belum diisi.</div>
+                      )}
                     </div>
                   </div>
                 </div>
