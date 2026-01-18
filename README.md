@@ -28,9 +28,9 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 Security controls are enabled; adjust to your deployment:
 - **Rate Limiting**: API requests are limited (100 req / 15 min).
 - **CORS**: Default allowlist from `ALLOWED_ORIGINS`; dev stays open.
-- **AI Endpoint Control**: Server uses `OLLAMA_HOST` by default. To allow client-provided tunnels (Hybrid Mode), set `ALLOW_CLIENT_OLLAMA_HOST=true` — only if Anda percaya klien/tunnel.
-- **Helmet Headers**: HTTP security headers + CSP (connectSrc longgar untuk hybrid; kencangkan jika tidak perlu).
-- **DB Password Required**: `DB_PASSWORD` wajib diisi; server akan gagal start jika kosong.
+- **AI Endpoint Control**: Server uses `OLLAMA_HOST` by default. To allow client-provided tunnels (Hybrid Mode), set `ALLOW_CLIENT_OLLAMA_HOST=true` — only if you trust the client/tunnel.
+- **Helmet Headers**: HTTP security headers + CSP (connectSrc is loose for hybrid; tighten if not needed).
+- **DB Password Required**: `DB_PASSWORD` is required; the server will fail to start if empty.
 
 ## Private Hybrid Mode (Local Data Gateway)
 

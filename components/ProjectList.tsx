@@ -164,7 +164,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                 className="hidden lg:flex items-center flex-1 mx-12 bg-white border border-gray-200 rounded-xl px-4 h-12 cursor-pointer hover:border-blue-300 transition-all group shadow-sm"
             >
                 <Search size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                <span className="ml-3 text-sm text-gray-400 font-medium">Global search tasks or boards...</span>
+                <span className="ml-3 text-sm text-gray-400 font-medium">Search...</span>
                 <div className="ml-auto flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
                     <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">Ctrl</kbd>
                     <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">K</kbd>

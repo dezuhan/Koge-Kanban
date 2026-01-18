@@ -103,7 +103,7 @@ const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search tasks, descriptions, or projects... (try 'p:high')"
+            placeholder="Search..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 bg-transparent border-none outline-none text-lg text-gray-800 placeholder:text-gray-400 font-medium"
