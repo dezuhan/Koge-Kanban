@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Project, PrioritySettings, Priority, Task, Column, ProjectContext } from '../types';
 import { db } from '../services/db';
+import ConfirmModal from '../components/ConfirmModal';
 
 interface AppContextType {
-  projects: Project[];
-  setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
+  projects: Project[] | null;
+  setProjects: React.Dispatch<React.SetStateAction<Project[] | null>>;
   prioritySettings: PrioritySettings;
   setPrioritySettings: React.Dispatch<React.SetStateAction<PrioritySettings>>;
   appLoading: boolean;
@@ -17,7 +18,7 @@ interface AppContextType {
   fetchModels: () => Promise<string[]>;
   addAIModel: (model: string) => void;
   removeAIModel: (model: string) => void;
-  setActiveAIModel: (model: string) => void;
+  setActiveAIModel: (model: string) => Promise<boolean>;
   ollamaEndpoint: string;
   setOllamaEndpoint: (endpoint: string) => void;
   isChatOpen: boolean;
@@ -26,8 +27,12 @@ interface AppContextType {
   setIsAILoading: (isLoading: boolean) => void;
   currentContext: ProjectContext | null;
   setCurrentContext: (context: ProjectContext | null) => void;
+  isSearchOpen: boolean;
+  setIsSearchOpen: (isOpen: boolean) => void;
   boardRefreshTrigger: number;
   notifyBoardRefresh: () => void;
+  confirm: (options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; confirmText?: string; cancelText?: string; onConfirm: () => void }) => void;
+  alert: (options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; onConfirm?: () => void }) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -126,7 +131,7 @@ const TEMPLATE_COLUMNS_SEED: Column[] = [
 ];
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<Project[] | null>([]);
   const [prioritySettings, setPrioritySettings] = useState<PrioritySettings>(DEFAULT_PRIORITY_SETTINGS);
   const [appLoading, setAppLoading] = useState(true);
   const [isAIEnabled, setIsAIEnabled] = useState(false);
@@ -137,7 +142,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isAILoading, setIsAILoading] = useState(false);
   const [currentContext, setCurrentContext] = useState<ProjectContext | null>(null);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [boardRefreshTrigger, setBoardRefreshTrigger] = useState(0);
+
+  // Global Modal State
+  const [modalConfig, setModalConfig] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      type: 'danger' | 'warning' | 'info';
+      confirmText?: string;
+      cancelText?: string;
+      onConfirm: () => void;
+      isAlert: boolean;
+  }>({
+      isOpen: false,
+      title: '',
+      message: '',
+      type: 'info',
+      onConfirm: () => {},
+      isAlert: false
+  });
+
+  const confirm = useCallback((options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; confirmText?: string; cancelText?: string; onConfirm: () => void }) => {
+      setModalConfig({
+          isOpen: true,
+          title: options.title,
+          message: options.message,
+          type: options.type || 'danger',
+          confirmText: options.confirmText,
+          cancelText: options.cancelText,
+          onConfirm: options.onConfirm,
+          isAlert: false
+      });
+  }, []);
+
+  const alert = useCallback((options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; onConfirm?: () => void }) => {
+      setModalConfig({
+          isOpen: true,
+          title: options.title,
+          message: options.message,
+          type: options.type || 'info',
+          onConfirm: options.onConfirm || (() => {}),
+          isAlert: true
+      });
+  }, []);
 
   const notifyBoardRefresh = useCallback(() => {
       setBoardRefreshTrigger(prev => prev + 1);
@@ -257,8 +306,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
   };
 
-  const setActiveAIModel = (model: string) => {
+  const setActiveAIModel = async (model: string): Promise<boolean> => {
       setActiveModel(model);
+      
+      // When a user selects a model, we should:
+      // 1. Re-fetch available models to ensure list is fresh
+      await fetchModels();
+      
+      // 2. Test connectivity with this specific model
+      setIsAILoading(true);
+      try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          
+          const response = await fetch('/api/ai/generate', {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint
+              },
+              body: JSON.stringify({ prompt: "ping", model: model })
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+              setIsAIEnabled(true);
+              return true;
+          } else {
+              // If model doesn't exist anymore or Ollama is down
+              setIsAIEnabled(false);
+              return false;
+          }
+      } catch (e) {
+          console.error("AI Model Selection Check Failed:", e);
+          setIsAIEnabled(false);
+          return false;
+      } finally {
+          setIsAILoading(false);
+      }
   };
 
   useEffect(() => {
@@ -301,33 +387,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             if (fetchedProjects && fetchedProjects.length > 0) {
                 setProjects(fetchedProjects);
+            } else if (fetchedProjects === null) {
+                console.error("[AppContext] Failed to fetch projects. Setting to null for connection error UI.");
+                setProjects(null);
             } else {
-                // SEEDING LOGIC: Database is empty OR fetch failed (null)
-                // BUT, if fetch failed, we shouldn't necessarily overwrite with seed data if DB actually has data.
-                // db.getProjects() now returns null on error.
-                
-                if (fetchedProjects === null) {
-                    console.error("[AppContext] Failed to fetch projects. NOT seeding to avoid overwrite.");
-                    // We can try to rely on local state or show error?
-                    // For now, let's just initialize empty so app doesn't crash, but warn user.
-                } else {
+                // SEEDING LOGIC: Database is empty (fetchedProjects is [])
                 console.log("Database empty. Seeding Welcome Project...");
                 const seedProjects = [SEED_PROJECT];
                 
-                // 1. Set State
                 setProjects(seedProjects);
-                
-                // 2. Persist Project List
                 await db.saveProjects(seedProjects);
-                
-                // 3. Persist Columns for this project
                 await db.saveColumns(SEED_PROJECT.id, TEMPLATE_COLUMNS_SEED);
-                
-                // 4. Persist Tasks for this project
                 await db.saveTasks(SEED_PROJECT.id, SEED_TASKS);
-                
                 console.log("Seeding complete.");
-            }
             }
             
             setIsInitialized(true);
@@ -342,10 +414,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Persistence
   useEffect(() => {
-    // Only save projects if application is initialized and not loading
-    if (!appLoading && isInitialized) {
-        // Debounce or ensure we are not saving empty array over existing data if not intended.
-        // But logic above handles seeding.
+    // Only save projects if application is initialized and not loading, and we have projects
+    if (!appLoading && isInitialized && projects !== null) {
         db.saveProjects(projects);
     }
   }, [projects, appLoading, isInitialized]);
@@ -366,8 +436,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [aiModels, activeModel, isAIEnabled, ollamaEndpoint, appLoading, isInitialized]);
 
   return (
-    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint, setOllamaEndpoint, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, boardRefreshTrigger, notifyBoardRefresh }}>
+    <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint, setOllamaEndpoint, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, isSearchOpen, setIsSearchOpen, boardRefreshTrigger, notifyBoardRefresh, confirm, alert }}>
       {children}
+      <ConfirmModal 
+        isOpen={modalConfig.isOpen}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        confirmText={modalConfig.confirmText}
+        cancelText={modalConfig.cancelText}
+        isAlert={modalConfig.isAlert}
+        onClose={() => setModalConfig(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfig.onConfirm}
+      />
     </AppContext.Provider>
   );
 };

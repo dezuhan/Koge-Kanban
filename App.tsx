@@ -4,6 +4,7 @@ import { AppProvider } from './context/AppContext';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import BoardPage from './pages/BoardPage';
+import SettingsPage from './pages/SettingsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 
 /**
@@ -23,6 +24,7 @@ const App: React.FC = () => {
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/board/:projectId" element={<BoardPage />} />
                     <Route path="/board/:projectId/task/:taskId" element={<BoardPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
             </Routes>

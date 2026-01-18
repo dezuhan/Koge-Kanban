@@ -5,7 +5,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Task, Column, PrioritySettings } from '../types';
 import { TaskCard } from './TaskCard';
 import { SortableTask } from './SortableTask';
-import { Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { Plus, MoreHorizontal, Edit, Trash2, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface BoardViewProps {
   tasks: Task[];
@@ -23,6 +23,10 @@ interface BoardViewProps {
   onAddTask: (columnId: string) => void;
   prioritySettings: PrioritySettings;
   isDragEnabled?: boolean;
+  selectedTaskIds?: string[];
+  onToggleTaskSelection?: (taskId: string) => void;
+  onSetSelection?: (ids: string[]) => void;
+  projectId?: string;
 }
 
 type ActiveDragItem = 
@@ -39,7 +43,17 @@ const SortableColumn = ({
     prioritySettings,
     onEditColumn,
     onDeleteColumn,
-    onAddTask
+    onAddTask,
+    selectedTaskIds = [],
+    onToggleTaskSelection,
+    onSetSelection,
+    activeId,
+    index,
+    isFirst,
+    isLast,
+    onMoveLeft,
+    onMoveRight,
+    projectId
 }: { 
     column: Column, 
     tasks: Task[], 
@@ -50,7 +64,17 @@ const SortableColumn = ({
     prioritySettings: PrioritySettings,
     onEditColumn: (c: Column) => void,
     onDeleteColumn: (id: string) => void,
-    onAddTask: (id: string) => void
+    onAddTask: (id: string) => void,
+    selectedTaskIds?: string[],
+    onToggleTaskSelection?: (taskId: string) => void,
+    onSetSelection?: (ids: string[]) => void,
+    activeId: string | null,
+    index: number,
+    isFirst: boolean,
+    isLast: boolean,
+    onMoveLeft: () => void,
+    onMoveRight: () => void,
+    projectId?: string
 }) => {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -65,18 +89,35 @@ const SortableColumn = ({
 
   const [showMenu, setShowMenu] = React.useState(false);
 
-  // Calculate a very light background color based on the column color
-  // Assuming hex, append '15' for approx 8% opacity or '20' for 12%
   const columnBgStyle = {
       backgroundColor: column.color + '15', 
       borderColor: column.color + '30'
+  };
+
+  // Select all logic
+  const columnTaskIds = tasks.map(t => t.id);
+  const allSelected = columnTaskIds.length > 0 && columnTaskIds.every(id => selectedTaskIds.includes(id));
+  const someSelected = columnTaskIds.some(id => selectedTaskIds.includes(id)) && !allSelected;
+
+  const handleSelectAll = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!onSetSelection) return;
+
+      if (allSelected) {
+          // Deselect all in this column
+          onSetSelection(selectedTaskIds.filter(id => !columnTaskIds.includes(id)));
+      } else {
+          // Select all in this column + keep existing from other columns
+          const otherSelected = selectedTaskIds.filter(id => !columnTaskIds.includes(id));
+          onSetSelection([...otherSelected, ...columnTaskIds]);
+      }
   };
 
   return (
     <div 
         ref={setNodeRef} 
         style={{...style, ...columnBgStyle}}
-        className={`kanban-column flex flex-col h-full min-w-[280px] w-80 rounded-xl transition-colors border`}
+        className={`kanban-column flex flex-col h-full min-w-[280px] w-80 rounded-lg transition-colors border`}
     >
       <div 
         className="kanban-column-header p-3 font-semibold text-gray-700 flex justify-between items-center border-b border-gray-200/50 group relative cursor-grab active:cursor-grabbing"
@@ -84,7 +125,23 @@ const SortableColumn = ({
         {...listeners}
       >
         <div className="flex items-center gap-2 flex-1">
-            <span className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: column.color }}></span>
+            {/* Select All Checkbox */}
+            <div 
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={handleSelectAll}
+                className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${
+                    allSelected 
+                        ? 'bg-blue-600 border-blue-600 text-white' 
+                        : someSelected 
+                            ? 'bg-blue-50 border-blue-400 text-blue-600'
+                            : 'bg-white border-gray-300 text-transparent hover:border-blue-400'
+                }`}
+                title={allSelected ? "Deselect All" : "Select All in Column"}
+            >
+                {allSelected ? <Check size={10} strokeWidth={4} /> : someSelected ? <div className="w-2 h-0.5 bg-blue-600 rounded-full" /> : null}
+            </div>
+
+            <span className="w-3 h-3 rounded-full shadow-sm ml-1" style={{ backgroundColor: column.color }}></span>
             <span className="truncate max-w-[150px]" title={column.title}>{column.title}</span>
              <span className="bg-white/60 text-gray-600 text-xs px-2 py-0.5 rounded-full">
               {tasks.length}
@@ -116,6 +173,26 @@ const SortableColumn = ({
                         >
                             <Edit size={14} /> Edit
                         </button>
+                        
+                        <div className="h-px bg-gray-100 my-1" />
+                        
+                        <button 
+                            disabled={isFirst}
+                            onClick={() => { setShowMenu(false); onMoveLeft(); }}
+                            className={`flex items-center gap-2 px-3 py-2 text-sm text-left w-full ${isFirst ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <ChevronLeft size={14} /> Move Left
+                        </button>
+                        <button 
+                            disabled={isLast}
+                            onClick={() => { setShowMenu(false); onMoveRight(); }}
+                            className={`flex items-center gap-2 px-3 py-2 text-sm text-left w-full ${isLast ? 'text-gray-300 cursor-not-allowed' : 'text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <ChevronRight size={14} /> Move Right
+                        </button>
+
+                        <div className="h-px bg-gray-100 my-1" />
+
                         <button 
                             onClick={() => { setShowMenu(false); onDeleteColumn(column.id); }}
                             className="btn-delete-column flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left w-full"
@@ -130,17 +207,36 @@ const SortableColumn = ({
       </div>
       <div className="kanban-column-body flex-1 p-2 space-y-3 overflow-y-auto">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-            {tasks.map((task) => (
-            <SortableTask 
-                key={task.id} 
-                task={task} 
-                onEdit={onEditTask} 
-                onDelete={onDeleteTask}
-                onDuplicate={onDuplicateTask}
-                onToggleCheck={onToggleCheck}
-                prioritySettings={prioritySettings}
-            />
-            ))}
+            {tasks.map((task) => {
+                // Multi-drag smoothing: Hide other selected tasks while dragging one of them
+                const isPartOfMultiDrag = selectedTaskIds?.includes(task.id) && 
+                                         selectedTaskIds?.includes(activeId as string) && 
+                                         task.id !== activeId;
+                
+                return (
+                    <div 
+                        key={task.id} 
+                        style={{ 
+                            opacity: isPartOfMultiDrag ? 0 : 1, 
+                            transform: isPartOfMultiDrag ? 'scale(0.8) translateY(-10px)' : 'scale(1) translateY(0)',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            pointerEvents: isPartOfMultiDrag ? 'none' : 'auto'
+                        }}
+                    >
+                        <SortableTask 
+                            task={task} 
+                            onEdit={onEditTask} 
+                            onDelete={onDeleteTask}
+                            onDuplicate={onDuplicateTask}
+                            onToggleCheck={onToggleCheck}
+                            prioritySettings={prioritySettings}
+                            selectedTaskIds={selectedTaskIds}
+                            onToggleTaskSelection={onToggleTaskSelection}
+                            projectId={projectId}
+                        />
+                    </div>
+                );
+            })}
         </SortableContext>
         {tasks.length === 0 && (
             <div className="kanban-column-empty h-24 border-2 border-dashed border-gray-300/30 rounded-lg flex items-center justify-center text-gray-400 text-sm">
@@ -167,7 +263,11 @@ const BoardView: React.FC<BoardViewProps> = ({
     onAddTask,
     prioritySettings,
     isDragEnabled = true,
-    onTaskReorder
+    onTaskReorder,
+    selectedTaskIds = [],
+    onToggleTaskSelection,
+    onSetSelection,
+    projectId
 }) => {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [activeItem, setActiveItem] = React.useState<ActiveDragItem | null>(null);
@@ -175,7 +275,7 @@ const BoardView: React.FC<BoardViewProps> = ({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 5,
+        distance: 3,
       },
     })
   );
@@ -204,14 +304,21 @@ const BoardView: React.FC<BoardViewProps> = ({
 
     // Moving task over another task
     if (isActiveTask && isOverTask) {
-        // This is handled by SortableContext reordering visually, but we need to ensure the parent container is correct?
-        // Actually, dnd-kit's sortable context handles visual reordering.
-        // We might want to move it to the new container if it's different.
         const activeTask = active.data.current!.task as Task;
         const overTask = over.data.current!.task as Task;
 
         if (activeTask.status !== overTask.status) {
-             onTaskMove(activeTask.id, overTask.status);
+             // Handle multi-drag: If active task is selected, move all selected tasks
+             if (selectedTaskIds.includes(activeTask.id)) {
+                 selectedTaskIds.forEach(id => {
+                     const task = tasks.find(t => t.id === id);
+                     if (task && task.status !== overTask.status) {
+                         onTaskMove(id, overTask.status);
+                     }
+                 });
+             } else {
+                 onTaskMove(activeTask.id, overTask.status);
+             }
         }
     }
 
@@ -221,7 +328,16 @@ const BoardView: React.FC<BoardViewProps> = ({
         const activeTask = active.data.current!.task as Task;
         const columnId = overId as string;
         if (activeTask.status !== columnId) {
-            onTaskMove(activeTask.id, columnId);
+            if (selectedTaskIds.includes(activeTask.id)) {
+                selectedTaskIds.forEach(id => {
+                    const task = tasks.find(t => t.id === id);
+                    if (task && task.status !== columnId) {
+                        onTaskMove(id, columnId);
+                    }
+                });
+            } else {
+                onTaskMove(activeTask.id, columnId);
+            }
         }
     }
   };
@@ -235,40 +351,67 @@ const BoardView: React.FC<BoardViewProps> = ({
 
     const activeType = active.data.current?.type;
     
-    // Handle Column Reorder
     if (activeType === 'Column' && active.id !== over.id) {
         onColumnMove(active.id as string, over.id as string);
         return;
     }
 
-    // Handle Task Reorder (Same Column) or Move (Different Column)
     if (activeType === 'Task') {
         const activeTask = active.data.current!.task as Task;
         const overId = over.id as string;
+        const isMultiDragging = selectedTaskIds.includes(activeTask.id);
         
-        // If dropped on a column (empty area or header)
         const isOverColumn = columns.some(c => c.id === overId);
         if (isOverColumn) {
-             if (activeTask.status !== overId) {
+             if (isMultiDragging) {
+                 selectedTaskIds.forEach(id => {
+                     if (tasks.find(t => t.id === id)?.status !== overId) {
+                         onTaskMove(id, overId);
+                     }
+                 });
+             } else if (activeTask.status !== overId) {
                  onTaskMove(activeTask.id, overId);
              }
              return;
         }
 
-        // If dropped on another task
         const overTask = tasks.find(t => t.id === overId);
         if (overTask) {
             if (activeTask.status !== overTask.status) {
-                // Moved to different column (should be handled by DragOver mostly, but ensure here)
-                onTaskMove(activeTask.id, overTask.status);
+                if (isMultiDragging) {
+                    selectedTaskIds.forEach(id => {
+                        if (tasks.find(t => t.id === id)?.status !== overTask.status) {
+                            onTaskMove(id, overTask.status);
+                        }
+                    });
+                } else {
+                    onTaskMove(activeTask.id, overTask.status);
+                }
             } else {
                 // Reorder in same column
                 if (onTaskReorder && active.id !== over.id) {
-                    const oldIndex = tasks.findIndex((t) => t.id === active.id);
-                    const newIndex = tasks.findIndex((t) => t.id === over.id);
-                    if (oldIndex !== -1 && newIndex !== -1) {
-                         const newTasks = arrayMove(tasks, oldIndex, newIndex);
-                         onTaskReorder(newTasks);
+                    if (isMultiDragging) {
+                        const otherSelectedIds = selectedTaskIds.filter(id => id !== activeTask.id);
+                        const filteredTasks = tasks.filter(t => !otherSelectedIds.includes(t.id));
+                        
+                        const oldIndex = filteredTasks.findIndex((t) => t.id === active.id);
+                        const newIndex = filteredTasks.findIndex((t) => t.id === over.id);
+                        
+                        if (oldIndex !== -1 && newIndex !== -1) {
+                             const movedTasks = arrayMove(filteredTasks, oldIndex, newIndex);
+                             const activeIdx = movedTasks.findIndex(t => t.id === activeTask.id);
+                             const finalTasks = [...movedTasks];
+                             const otherTasks = tasks.filter(t => otherSelectedIds.includes(t.id));
+                             finalTasks.splice(activeIdx + 1, 0, ...otherTasks);
+                             onTaskReorder(finalTasks);
+                        }
+                    } else {
+                        const oldIndex = tasks.findIndex((t) => t.id === active.id);
+                        const newIndex = tasks.findIndex((t) => t.id === over.id);
+                        if (oldIndex !== -1 && newIndex !== -1) {
+                             const newTasks = arrayMove(tasks, oldIndex, newIndex);
+                             onTaskReorder(newTasks);
+                        }
                     }
                 }
             }
@@ -280,11 +423,13 @@ const BoardView: React.FC<BoardViewProps> = ({
     sideEffects: defaultDropAnimationSideEffects({
       styles: {
         active: {
-          opacity: '0.5',
+          opacity: '1',
         },
       },
     }),
   };
+
+  const isMultiDragging = activeItem?.type === 'Task' && selectedTaskIds.includes(activeItem.task.id) && selectedTaskIds.length > 1;
 
   return (
     <DndContext 
@@ -294,9 +439,9 @@ const BoardView: React.FC<BoardViewProps> = ({
         onDragEnd={handleDragEnd}
         collisionDetection={closestCorners}
     >
-      <div className="kanban-board flex h-full gap-4 overflow-x-auto pb-4 items-start">
+      <div className="kanban-board flex-1 min-h-0 flex gap-4 overflow-x-auto pb-4 items-start">
         <SortableContext items={columns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-            {columns.map((column) => (
+            {columns.map((column, idx) => (
             <SortableColumn 
                 key={column.id} 
                 column={column} 
@@ -309,14 +454,23 @@ const BoardView: React.FC<BoardViewProps> = ({
                 onEditColumn={onEditColumn}
                 onDeleteColumn={onDeleteColumn}
                 onAddTask={onAddTask}
+                selectedTaskIds={selectedTaskIds}
+                onToggleTaskSelection={onToggleTaskSelection}
+                onSetSelection={onSetSelection}
+                activeId={activeId}
+                index={idx}
+                isFirst={idx === 0}
+                isLast={idx === columns.length - 1}
+                onMoveLeft={() => idx > 0 && onColumnMove(column.id, columns[idx - 1].id)}
+                onMoveRight={() => idx < columns.length - 1 && onColumnMove(column.id, columns[idx + 1].id)}
+                projectId={projectId}
             />
             ))}
         </SortableContext>
         
-        {/* Add Column Button */}
         <button 
             onClick={onAddColumn}
-            className="kanban-add-column-btn min-w-[50px] h-[50px] flex items-center justify-center rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition-all group shrink-0"
+            className="kanban-add-column-btn min-w-[50px] h-[50px] flex items-center justify-center rounded-lg border-2 border-dashed border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition-all group shrink-0"
             title="Add more table (column)"
         >
             <Plus size={24} className="transition-transform group-hover:scale-110" />
@@ -326,14 +480,26 @@ const BoardView: React.FC<BoardViewProps> = ({
       <DragOverlay dropAnimation={dropAnimation}>
         {activeId && activeItem ? (
             activeItem.type === 'Column' ? (
-                <div className="flex flex-col h-[500px] w-80 rounded-xl bg-white shadow-xl opacity-90 border-2 border-blue-500 p-3">
+                <div className="flex flex-col h-[500px] w-80 rounded-lg bg-white shadow-xl opacity-90 border-2 border-blue-500 p-3">
                      <div className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: activeItem.column.color }}></span>
                         <span className="font-bold text-gray-800">{activeItem.column.title}</span>
                      </div>
                 </div>
             ) : (
-                <div className="transform rotate-3 cursor-grabbing">
+                <div className="relative transform rotate-2 cursor-grabbing transition-transform duration-200">
+                    {isMultiDragging && (
+                        <>
+                            {/* Visual Stack effect */}
+                            <div className="absolute inset-0 bg-white border border-gray-200 rounded-lg shadow-md -translate-x-2 -translate-y-2 rotate-[-4deg] opacity-40 z-[-2]"></div>
+                            <div className="absolute inset-0 bg-white border border-gray-200 rounded-lg shadow-md -translate-x-1 -translate-y-1 rotate-[-2deg] opacity-70 z-[-1]"></div>
+                            
+                            {/* Multi-drag Badge (Image 4 style) */}
+                            <div className="absolute -top-4 -right-4 bg-blue-600 text-white w-10 h-10 rounded-full flex items-center justify-center shadow-lg border-2 border-white animate-in zoom-in duration-300 z-10">
+                                <span className="text-lg font-black">{selectedTaskIds.length}</span>
+                            </div>
+                        </>
+                    )}
                     <TaskCard 
                         task={activeItem.task} 
                         onEdit={() => {}} 
@@ -341,6 +507,9 @@ const BoardView: React.FC<BoardViewProps> = ({
                         onDuplicate={() => {}}
                         onToggleCheck={() => {}} 
                         prioritySettings={prioritySettings}
+                        selectedTaskIds={selectedTaskIds}
+                        onToggleTaskSelection={onToggleTaskSelection}
+                        projectId={projectId}
                     />
                 </div>
             )

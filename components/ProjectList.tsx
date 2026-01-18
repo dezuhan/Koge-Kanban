@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, Task, Priority } from '../types';
-import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Wand2, ToggleLeft, ToggleRight, Loader2, Settings, MessageSquare } from 'lucide-react';
+import { Folder, Plus, ArrowRight, Trash2, Calendar, Layout, Edit2, Github, Linkedin, Instagram, Coffee, AlertCircle, Clock, Zap, Target, List, Grid, User, ChevronDown, ChevronUp, Filter, Wand2, ToggleLeft, ToggleRight, Loader2, Settings, MessageSquare, Sparkles, Search } from 'lucide-react';
 import { db } from '../services/db';
-import AISettingsModal from './AISettingsModal';
+import { useNavigate } from 'react-router-dom';
+import { SearchableSelect } from './SearchableSelect';
 
 interface ProjectListProps {
   /** List of all available projects */
-  projects: Project[];
+  projects: Project[] | null;
   /** Handler when a project or a specific task in a project is selected */
   onSelectProject: (project: Project, taskId?: string) => void;
   /** Handler for adding a new project */
@@ -25,19 +26,11 @@ interface ProjectListProps {
  * 2. "My Boards" section (Grid of projects)
  */
 const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, onAddProject, onEditProject, onDeleteProject }) => {
-  const { isAIEnabled, toggleAI, aiModels, fetchModels, activeModel, isChatOpen, setIsChatOpen, setCurrentContext } = useApp();
+  const navigate = useNavigate();
+  const { isAIEnabled, toggleAI, isChatOpen, setIsChatOpen, setCurrentContext, prioritySettings, setPrioritySettings, alert: globalAlert, setIsSearchOpen } = useApp();
   const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
-  const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
-  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
-  const [apiBaseDraft, setApiBaseDraft] = useState('');
-  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
-  const API_BASE_STORAGE_KEY = 'koge_api_base_url';
-  const defaultApiBaseUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    return window.location.origin;
-  }, []);
 
   const [dashboardFilter, setDashboardFilter] = useState<'dueDate' | 'priority'>('dueDate');
   const [dashboardView, setDashboardView] = useState<'grid' | 'list'>('grid');
@@ -49,34 +42,14 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
   }, [setCurrentContext]);
 
   useEffect(() => {
-    if (!isSettingsMenuOpen || typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
-    setApiBaseDraft(stored);
-  }, [isSettingsMenuOpen]);
-
-  useEffect(() => {
-    if (!isSettingsMenuOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
-        setIsSettingsMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSettingsMenuOpen]);
-
-  useEffect(() => {
     /**
      * Fetches all tasks from all projects to display in the "Recent Tasks" section.
      * Hits the backend endpoint /api/tasks/global.
      */
     const fetchGlobalTasks = async () => {
-        // Don't set loading to true on background refetches to avoid flicker
-        // setLoadingTasks(true); 
         try {
             const tasks = await db.getAllGlobalTasks();
             setGlobalTasks(prev => {
-                // Simple equality check to avoid rerender if data matches
                 if (JSON.stringify(prev) === JSON.stringify(tasks)) return prev;
                 return tasks || [];
             });
@@ -87,34 +60,26 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
         }
     };
 
-    // Initial fetch
     fetchGlobalTasks();
-
-    // Poll every 5 seconds for "realtime" updates
     const intervalId = setInterval(fetchGlobalTasks, 5000);
-
     return () => clearInterval(intervalId);
   }, []);
 
   const sortedDashboardTasks = useMemo(() => {
-    // Filter: Only show active tasks (not completed, not in "Complete" status)
     let tasks = globalTasks.filter(t => !t.isCompleted && t.status !== 'Complete');
     
-    // Sort based on user selection
     if (dashboardFilter === 'dueDate') {
-        // Sort by Due Date: Tasks with nearest deadlines first
         tasks.sort((a, b) => {
             if (!a.dueDate) return 1;
             if (!b.dueDate) return -1;
             return a.dueDate - b.dueDate;
         });
     } else {
-        // Sort by Priority: High -> Medium -> Low
         const pMap = { [Priority.HIGH]: 3, [Priority.MEDIUM]: 2, [Priority.LOW]: 1 };
         tasks.sort((a, b) => pMap[b.priority] - pMap[a.priority]);
     }
 
-    return tasks.slice(0, 8); // Display top 8 tasks
+    return tasks.slice(0, 8);
   }, [globalTasks, dashboardFilter]);
 
   const getPriorityColor = (priority: Priority) => {
@@ -125,30 +90,11 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       }
   };
 
-  const normalizeApiBase = (value: string) => value.replace(/\/+$/, '');
-
-  const handleSaveApiBase = () => {
-    if (typeof window === 'undefined') return;
-    const previous = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
-    const next = normalizeApiBase(apiBaseDraft.trim());
-    if (next) {
-      window.localStorage.setItem(API_BASE_STORAGE_KEY, next);
-    } else {
-      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
-    }
-    const changed = previous !== next;
-    setIsSettingsMenuOpen(false);
-    if (changed) {
-      window.location.reload();
-    }
-  };
-
   const getInitials = (name: string) => {
       return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const getColorStyles = (color: string = 'blue') => {
-      // Define styles based on color name
       const colors: Record<string, any> = {
           blue: { iconBg: 'bg-blue-50', iconText: 'text-blue-600', borderHover: 'hover:border-blue-300', groupHoverBg: 'group-hover:bg-blue-600' },
           red: { iconBg: 'bg-red-50', iconText: 'text-red-600', borderHover: 'hover:border-red-300', groupHoverBg: 'group-hover:bg-red-600' },
@@ -160,30 +106,25 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
           cyan: { iconBg: 'bg-cyan-50', iconText: 'text-cyan-600', borderHover: 'hover:border-cyan-300', groupHoverBg: 'group-hover:bg-cyan-600' },
           teal: { iconBg: 'bg-teal-50', iconText: 'text-teal-600', borderHover: 'hover:border-teal-300', groupHoverBg: 'group-hover:bg-teal-600' },
           orange: { iconBg: 'bg-orange-50', iconText: 'text-orange-600', borderHover: 'hover:border-orange-300', groupHoverBg: 'group-hover:bg-orange-600' },
-          // dark: { iconBg: 'bg-gray-100', iconText: 'text-gray-800', borderHover: 'hover:border-gray-400', groupHoverBg: 'group-hover:bg-gray-800' },
+          dark: { iconBg: 'bg-slate-100', iconText: 'text-slate-800', borderHover: 'hover:border-slate-400', groupHoverBg: 'group-hover:bg-slate-800' },
       };
       return colors[color] || colors.blue;
   };
 
   const handleTaskClick = (task: Task) => {
-        console.log("Clicked task:", task.title, "Project:", task.project);
-        
-        // 1. Try injected _projectId (most reliable from backend)
+        if (!projects) return;
         let proj = (task as any)._projectId 
             ? projects.find(p => p.id === (task as any)._projectId)
             : undefined;
 
-        // 2. Fallback: Search by ID directly (if task.project stores ID)
         if (!proj) {
             proj = projects.find(p => p.id === task.project);
         }
 
-        // 3. Fallback: Search by Name (Exact)
         if (!proj) {
              proj = projects.find(p => p.name === task.project);
         }
 
-        // 4. Fallback: Fuzzy Name Match
         if (!proj) {
              const normalize = (s: string) => s.replace(/[^\w\s]/gi, '').trim().toLowerCase();
              const taskProjNorm = normalize(task.project);
@@ -191,12 +132,14 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                     projects.find(p => p.name.includes(task.project) || task.project.includes(p.name));
         }
 
-        console.log("Found project:", proj);
         if (proj) {
             onSelectProject(proj, task.id);
         } else {
-            console.warn("Project not found for task:", task);
-            alert(`Could not find project "${task.project}" for this task.`);
+            globalAlert({
+              title: 'Project Not Found',
+              message: `Could not find project "${task.project}" for this task.`,
+              type: 'danger'
+            });
         }
   };
 
@@ -204,112 +147,77 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
     <div className="project-list-view max-w-6xl w-full mx-auto p-4 md:p-8 min-h-screen flex flex-col">
       {/* Top Header */}
       <div className="project-list-header flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4">
-        <div className="w-full md:w-auto">
-           <h1 className="text-2xl md:text-3xl font-bold text-gray-800 flex items-center gap-3">
-             <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200">
-                <Layout size={24} className="md:w-7 md:h-7" />
-             </div>
-             {/* t('my_projects') replaced */}
-             My Projects
-           </h1>
-           <p className="text-gray-500 mt-1 text-sm md:text-base">Manage your kanban boards and workspaces.</p>
+        <div className="w-full md:w-auto flex-1 flex items-center justify-between">
+           <div className="flex flex-col">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200">
+                    <Layout size={24} className="md:w-7 md:h-7" />
+                </div>
+                My Projects
+              </h1>
+              <p className="text-gray-500 mt-1 text-sm md:text-base">Manage your kanban boards and workspaces.</p>
+           </div>
+
+           {/* Desktop Search Bar (Memenuhi Halaman) */}
+           <div 
+                onClick={() => setIsSearchOpen(true)}
+                className="hidden lg:flex items-center flex-1 mx-12 bg-white border border-gray-200 rounded-xl px-4 h-12 cursor-pointer hover:border-blue-300 transition-all group shadow-sm"
+            >
+                <Search size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                <span className="ml-3 text-sm text-gray-400 font-medium">Global search tasks or boards...</span>
+                <div className="ml-auto flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                    <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">Ctrl</kbd>
+                    <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">K</kbd>
+                </div>
+            </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-1">
-                <button 
-                    onClick={async () => {
-                        // If enabling
-                        if (!isAIEnabled) {
-                            setIsTogglingAI(true);
-                            
-                            // Just open settings, the modal will scan for models on mount
-                            setIsAISettingsOpen(true);
-                            
-                            setIsTogglingAI(false);
-                            return; 
-                        }
+            {/* AI & Settings Row (Matched with BoardPage) */}
+            <button 
+                onClick={async () => {
+                    setIsTogglingAI(true);
+                    await toggleAI();
+                    setIsTogglingAI(false);
+                }}
+                className={`flex items-center gap-2 px-4 h-10 rounded-lg transition-all font-bold text-sm shrink-0 ${
+                    isAIEnabled 
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                        : 'bg-white text-gray-400 border border-gray-200 hover:bg-gray-50'
+                }`}
+                disabled={isTogglingAI}
+                title={isAIEnabled ? "Disable AI Engine" : "Enable AI Engine"}
+            >
+                {isTogglingAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                <span>AI</span>
+                {isAIEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+            </button>
 
-                        // If disabling, just do it
-                        setIsTogglingAI(true);
-                        await toggleAI();
-                        setIsTogglingAI(false);
-                    }}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-bold border text-sm ${
-                        isAIEnabled 
-                            ? 'bg-white text-blue-700 border-blue-200 shadow-sm' 
-                            : 'bg-transparent text-gray-500 border-transparent hover:bg-gray-200'
-                    }`}
-                    disabled={isTogglingAI}
-                    title={isAIEnabled ? "Disable AI Features" : "Enable AI Features"}
-                >
-                    {isTogglingAI ? <Loader2 size={18} className="animate-spin" /> : <Wand2 size={18} />}
-                    <span className="whitespace-nowrap hidden sm:inline">AI</span>
-                    {isAIEnabled ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
-                </button>
-                <div className="relative" ref={settingsMenuRef}>
-                    <button
-                        onClick={() => setIsSettingsMenuOpen(prev => !prev)}
-                        className="p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
-                        title="Quick Settings"
-                    >
-                        <Settings size={18} />
-                    </button>
-                    {isSettingsMenuOpen && (
-                        <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-                                Quick Settings
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-xs font-medium text-gray-600">API Base Domain</label>
-                                <input
-                                    type="url"
-                                    value={apiBaseDraft}
-                                    onChange={(e) => setApiBaseDraft(e.target.value)}
-                                    placeholder="https://abcd.ngrok-free.app"
-                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                                />
-                                <p className="text-[10px] text-gray-500 leading-tight">
-                                    Kosongkan untuk default ({defaultApiBaseUrl}/api).
-                                </p>
-                            </div>
-                            <div className="mt-3 flex items-center justify-between">
-                                <button
-                                    onClick={() => {
-                                        setIsSettingsMenuOpen(false);
-                                        setIsAISettingsOpen(true);
-                                    }}
-                                    className="text-xs text-gray-500 hover:text-gray-700"
-                                >
-                                    AI Models
-                                </button>
-                                <button
-                                    onClick={handleSaveApiBase}
-                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
-                                >
-                                    Save & Reload
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-                {isAIEnabled && (
-                    <button
-                        onClick={() => setIsChatOpen(!isChatOpen)}
-                        className={`p-2 rounded-lg transition-all ${
-                            isChatOpen 
-                                ? 'bg-blue-600 text-white shadow-sm' 
-                                : 'text-blue-600 hover:bg-white hover:shadow-sm'
-                        }`}
-                        title="Open AI Chat"
-                    >
-                        <MessageSquare size={18} />
-                    </button>
-                )}
-        </div>
+            <button 
+                onClick={() => navigate('/settings')}
+                className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-lg transition-all shrink-0"
+                title="Application Settings"
+            >
+                <Settings size={20} />
+            </button>
+
+            <button 
+                onClick={() => isAIEnabled && setIsChatOpen(!isChatOpen)}
+                className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all border shrink-0 ${
+                    !isAIEnabled
+                        ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed opacity-50'
+                        : isChatOpen 
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' 
+                            : 'bg-white text-gray-500 hover:text-blue-600 border-gray-200 hover:border-blue-100 hover:bg-blue-50/30'
+                }`}
+                title={isAIEnabled ? "AI Chatbot" : "Enable AI to use Chat"}
+                disabled={!isAIEnabled}
+            >
+                <MessageSquare size={20} />
+            </button>
 
             <button 
               onClick={onAddProject}
-              className="btn-new-project bg-blue-600 text-white px-4 py-2 md:px-6 md:py-3 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 shadow-md hover:shadow-xl font-bold text-sm md:text-base flex-1 md:flex-none justify-center"
+              className="btn-new-project bg-blue-600 text-white h-10 px-6 rounded-lg hover:bg-blue-700 transition flex items-center gap-2 shadow-md shadow-blue-500/20 hover:shadow-xl font-bold text-sm md:text-base flex-1 md:flex-none justify-center"
             >
               <Plus size={18} className="md:w-5 md:h-5" /> 
               <span className="whitespace-nowrap">New Project</span>
@@ -321,7 +229,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
       <div className="dashboard-container mb-12 bg-white rounded-2xl border border-gray-200 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
         <div className="dashboard-header p-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50/50">
             <div className="flex items-center gap-2 overflow-hidden w-full sm:w-auto">
-                <div className="bg-blue-100 text-blue-600 p-1.5 rounded-lg shrink-0">
+                <div className="bg-blue-100 text-blue-600 p-1.5 rounded-xl shrink-0">
                     <Clock size={20} />
                 </div>
                 <h2 className="font-bold text-gray-800 text-lg truncate">Recent Tasks</h2>
@@ -329,31 +237,28 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
 
             <div className="dashboard-controls flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
                 {/* Filter Dropdown */}
-                <div className="relative">
-                    <select 
-                        value={dashboardFilter} 
-                        onChange={(e) => setDashboardFilter(e.target.value as 'dueDate' | 'priority')}
-                        className="appearance-none bg-white border border-gray-200 text-gray-600 text-xs font-bold py-1.5 pl-8 pr-8 rounded-lg focus:outline-none focus:border-blue-500 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
-                    >
-                        <option value="dueDate">By Date</option>
-                        <option value="priority">By Priority</option>
-                    </select>
-                    <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                    <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <div className="w-40">
+                    <SearchableSelect
+                        value={dashboardFilter === 'dueDate' ? 'By Date' : 'By Priority'}
+                        onChange={(val) => setDashboardFilter(val === 'By Date' ? 'dueDate' : 'priority')}
+                        options={['By Date', 'By Priority']}
+                        placeholder="Sort by..."
+                        icon={<Filter size={14} className="text-gray-400" />}
+                    />
                 </div>
 
                 {/* View Mode Switcher */}
-                <div className="flex bg-gray-100 p-1 rounded-lg shrink-0">
+                <div className="flex bg-gray-100 p-1 rounded-lg shrink-0 h-10 items-center">
                     <button 
                         onClick={() => setDashboardView('grid')}
-                        className={`p-1.5 rounded-md transition-all ${dashboardView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`h-full px-2.5 rounded-md transition-all flex items-center justify-center ${dashboardView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                         title="Board View"
                     >
                         <Grid size={16} />
                     </button>
                     <button 
                         onClick={() => setDashboardView('list')}
-                        className={`p-1.5 rounded-md transition-all ${dashboardView === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                        className={`h-full px-2.5 rounded-md transition-all flex items-center justify-center ${dashboardView === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
                         title="List View"
                     >
                         <List size={16} />
@@ -365,7 +270,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                 {/* Collapse Toggle */}
                 <button
                     onClick={() => setIsRecentTasksCollapsed(!isRecentTasksCollapsed)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+                    className="w-10 h-10 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all shrink-0"
                     title={isRecentTasksCollapsed ? "Expand" : "Collapse"}
                 >
                     {isRecentTasksCollapsed ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
@@ -386,7 +291,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                             <div 
                                 key={task.id} 
                                 onClick={() => handleTaskClick(task)}
-                                className="group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer flex flex-col h-full"
+                                className="group bg-white p-5 rounded-lg border border-gray-100 shadow-sm hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer flex flex-col h-full"
                             >
                                 <div className="flex justify-between items-start mb-3">
                                     <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-1">
@@ -433,7 +338,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                             <div 
                                 key={task.id}
                                 onClick={() => handleTaskClick(task)}
-                                className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl hover:shadow-md hover:border-blue-100 transition-all cursor-pointer group"
+                                className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-lg hover:shadow-md hover:border-blue-100 transition-all cursor-pointer group"
                             >
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                     <div className={`w-2 self-stretch rounded-full ${task.priority === Priority.HIGH ? 'bg-red-400' : task.priority === Priority.MEDIUM ? 'bg-amber-400' : 'bg-blue-400'}`}></div>
@@ -485,12 +390,12 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
         <div className="section-title flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold text-gray-800">My Boards</h2>
-                <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">{projects.length}</span>
+                <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">{projects?.length || 0}</span>
             </div>
         </div>
         
-        {projects.length === 0 ? (
-          <div className="project-list-empty text-center py-24 bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
+        {(!projects || projects.length === 0) ? (
+          <div className="project-list-empty text-center py-24 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-200">
              <Folder size={64} className="mx-auto text-gray-300 mb-4" />
              <h3 className="text-xl font-bold text-gray-500">No Projects Found</h3>
              <p className="text-gray-400 mb-8 max-w-xs mx-auto">Create a new project to start organizing your tasks locally and privately.</p>
@@ -503,7 +408,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
           </div>
         ) : (
           <div className="project-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map(project => {
+            {projects?.map(project => {
               const styles = getColorStyles(project.color);
               return (
               <div 
@@ -513,7 +418,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
               >
                 <div className="project-card-body p-6 flex-1">
                   <div className="flex justify-between items-start mb-4">
-                      <div className={`p-3 ${styles.iconBg} ${styles.iconText} rounded-xl ${styles.groupHoverBg} group-hover:text-white transition-all duration-300 shadow-sm`}>
+                      <div className={`p-3 ${styles.iconBg} ${styles.iconText} rounded-lg ${styles.groupHoverBg} group-hover:text-white transition-all duration-300 shadow-sm`}>
                           <Folder size={24} />
                       </div>
                       <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -561,7 +466,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                <div className="w-px h-6 bg-gray-200 mx-2"></div>
                <a href="https://buymeacoffee.com/dezuhan" target="_blank" className="flex items-center gap-2 bg-[#FF5E5B] text-white px-5 py-2 rounded-full hover:bg-[#ff4642] transition-all shadow-md hover:shadow-xl font-bold text-sm transform hover:-translate-y-1">
                   <Coffee size={18} fill="currentColor" />
-                  <span>Donate</span>
+                  <span>Buy Me a Coffee</span>
                </a>
             </div>
         
@@ -582,11 +487,6 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             </div>
          </div>
       </footer>
-      
-      <AISettingsModal 
-        isOpen={isAISettingsOpen} 
-        onClose={() => setIsAISettingsOpen(false)} 
-      />
     </div>
   );
 };

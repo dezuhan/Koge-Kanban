@@ -22,8 +22,8 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
   if (!isOpen) return null;
 
   const handleDownload = () => {
-    if (!content) return;
-    const blob = new Blob([content], { type: 'text/markdown' });
+    if (!cleanContent) return;
+    const blob = new Blob([cleanContent], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -34,13 +34,15 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  const cleanContent = content.replace(/^```markdown\s*|```\s*$/g, '').replace(/^```\s*|```\s*$/g, '').trim();
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4 animate-fade-in">
+      <div className="bg-white md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:max-w-2xl overflow-hidden flex flex-col md:max-h-[85vh]">
         {/* Header */}
         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+            <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
                 <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </div>
             <div>
@@ -54,15 +56,15 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
+        <div className="flex-1 overflow-y-auto p-6 bg-white">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-500 gap-3">
               <Loader2 size={32} className="animate-spin text-blue-500" />
               <p className="text-sm font-medium animate-pulse">Analyzing project data...</p>
             </div>
-          ) : content ? (
+          ) : cleanContent ? (
             <div className="prose prose-sm prose-blue max-w-none">
-              <ReactMarkdown>{content}</ReactMarkdown>
+              <ReactMarkdown>{cleanContent}</ReactMarkdown>
             </div>
           ) : (
             <div className="text-center py-12 text-gray-400">
@@ -76,7 +78,7 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
             <button 
                 onClick={handleDownload}
                 disabled={loading || !content}
-                className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
                 title="Download as Markdown"
             >
                 <Download size={16} />
@@ -86,9 +88,10 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
             <button 
                 onClick={onRefresh} 
                 disabled={loading}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+                className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50"
+                title="Regenerate Summary"
             >
-                {loading ? 'Generating...' : 'Regenerate Summary'}
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
             </button>
         </div>
       </div>

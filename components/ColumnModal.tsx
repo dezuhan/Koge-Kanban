@@ -52,8 +52,8 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
   if (!isOpen) return null;
 
   return (
-    <div className="column-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="column-modal-container bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div className="column-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+      <div className="column-modal-container bg-white md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:max-w-sm overflow-hidden flex flex-col">
         <div className="column-modal-header flex justify-between items-center p-4 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-800">{initialColumn ? 'Edit Column' : 'New Column'}</h2>
           <button onClick={onClose} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
@@ -61,7 +61,7 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="column-modal-form p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="column-modal-form flex-1 overflow-y-auto p-6 space-y-4">
           <div className="form-group">
             <label className="block text-sm font-medium text-gray-700 mb-1">Column Name</label>
             <input
@@ -93,7 +93,7 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
                   type="color" 
                   value={color}
                   onChange={(e) => setColor(e.target.value)}
-                  className="input-color-picker w-full h-8 rounded cursor-pointer border-gray-200 border"
+                  className="input-color-picker w-full h-8 rounded-xl cursor-pointer border-gray-200 border"
                />
             </div>
           </div>
@@ -102,13 +102,13 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
             <button
               type="button"
               onClick={onClose}
-              className="btn-cancel px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              className="btn-cancel px-4 py-2 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="btn-save px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+              className="btn-save px-4 py-2 text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition shadow-sm"
             >
               Save
             </button>

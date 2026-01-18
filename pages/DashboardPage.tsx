@@ -46,6 +46,7 @@ const DashboardPage: React.FC = () => {
 
   const handleSaveProject = (projectData: Pick<Project, 'id' | 'name' | 'description'>) => {
     setProjects(prev => {
+        if (!prev) return null; // Should not happen with modal open but safety first
         const exists = prev.some(p => p.id === projectData.id);
         let updatedProjects;
         if (exists) {
@@ -66,9 +67,9 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleDeleteProject = () => {
-      if (!projectToDelete) return;
+      if (!projectToDelete || !projects) return;
       dropProjectData(projectToDelete);
-      setProjects(prev => prev.filter(p => p.id !== projectToDelete));
+      setProjects(prev => prev ? prev.filter(p => p.id !== projectToDelete) : null);
       setProjectToDelete(null);
       setIsDeleteProjectModalOpen(false);
   };

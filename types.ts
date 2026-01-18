@@ -55,6 +55,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   error?: boolean;
+  hidden?: boolean;
+  isSystemSummary?: boolean;
 }
 
 export interface ProjectContext {

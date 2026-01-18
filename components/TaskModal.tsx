@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, Priority, SubTask, Column } from '../types';
-import { X, Calendar, User, Wand2, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough } from 'lucide-react';
+import { X, Calendar, User, Wand2, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough, Folder, Tag, Activity, AlertCircle, Share2 } from 'lucide-react';
+import { OllamaIcon } from './OllamaIcon';
 import ReactMarkdown from 'react-markdown';
 import ConfirmModal from './ConfirmModal';
 import { SubTaskList } from './task-modal/SubTaskList';
 import { MediaUploader } from './task-modal/MediaUploader';
+import { CustomDatePicker } from './CustomDatePicker';
+import { SearchableSelect } from './SearchableSelect';
 import { useApp } from '../context/AppContext';
 import { getAutoFillPrompt, getDescriptionPrompt, getMarkdownFormatPrompt } from '../fine-tunning/task-modal/prompts';
+import { db } from '../services/db';
 
 interface TaskModalProps {
   /** Whether the modal is visible */
@@ -23,6 +27,8 @@ interface TaskModalProps {
   defaultStatus?: string;
   /** Name of the current project context */
   currentProjectName?: string; 
+  /** Project ID for sharing link */
+  projectId?: string;
 }
 
 /**
@@ -34,8 +40,8 @@ interface TaskModalProps {
  * - Media attachments
  * - Priority, Due Date, Assignee, etc.
  */
-const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus, currentProjectName }) => {
-  const { isAIEnabled, disableAI, activeModel } = useApp();
+const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus, currentProjectName, projectId: propProjectId }) => {
+  const { isAIEnabled, disableAI, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<string>('');
@@ -52,6 +58,8 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   const [userInstructions, setUserInstructions] = useState('');
   const [aiThinking, setAiThinking] = useState<string | null>(null);
 
+  const [isShared, setIsShared] = useState(false);
+
   // Undo/Redo history for description
   const [descHistory, setDescHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -64,6 +72,67 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   const [isDirty, setIsDirty] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isAILoading, setIsAILoading] = useState(false);
+
+  const { projects, setProjects } = useApp();
+
+  // Real-time unique values from DB
+  const [projectOptions, setProjectOptions] = useState<string[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [assigneeOptions, setAssigneeOptions] = useState<string[]>([]);
+
+  const fetchGlobalOptions = async () => {
+    const allTasks = await db.getAllGlobalTasks();
+    const projectsData = await db.getProjects();
+    
+    if (allTasks) {
+      const cats = Array.from(new Set(allTasks.map(t => t.category).filter(Boolean)));
+      const assigns = Array.from(new Set(allTasks.map(t => t.assignee).filter(Boolean)));
+      setCategoryOptions(cats);
+      setAssigneeOptions(assigns);
+    }
+    
+    if (projectsData) {
+      setProjectOptions(projectsData.map(p => p.name));
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchGlobalOptions();
+    }
+  }, [isOpen]);
+
+  const handleCreateProject = async (name: string) => {
+    if (!projects) return;
+    
+    const newProject: Project = {
+      id: crypto.randomUUID(),
+      name,
+      description: `Automatically created project for "${name}"`,
+      createdAt: Date.now(),
+      color: 'blue'
+    } as Project;
+
+    // Save to DB
+    const updatedProjects = [...projects, newProject];
+    await db.saveProjects(updatedProjects);
+    
+    // Update state
+    setProjects(updatedProjects);
+    
+    // Update local options
+    setProjectOptions(prev => [...prev, name]);
+    
+    // Initialize data for new project
+    const TEMPLATE_COLUMNS = [
+      { id: 'Draft', title: 'DRAFT', color: '#94a3b8' },
+      { id: 'To Do', title: 'TO-DO', color: '#f59e0b' },
+      { id: 'On Going', title: 'ON GOING', color: '#3b82f6' },
+      { id: 'Complete', title: 'COMPLETE', color: '#22c55e' }
+    ];
+    await db.saveColumns(newProject.id, TEMPLATE_COLUMNS);
+    await db.saveTasks(newProject.id, []);
+  };
 
   // Track changes to form fields to set isDirty
   useEffect(() => {
@@ -174,6 +243,25 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     
     prevIsOpen.current = isOpen;
   }, [initialTask, isOpen, columns, defaultStatus, currentProjectName]);
+
+  const handleShare = async () => {
+    if (!initialTask || !propProjectId) return;
+    
+    const url = `${window.location.origin}/board/${propProjectId}/task/${initialTask.id}`;
+    
+    try {
+        await navigator.clipboard.writeText(url);
+        setIsShared(true);
+        setTimeout(() => setIsShared(false), 2000);
+    } catch (err) {
+        console.error("Failed to copy link:", err);
+        globalAlert({
+            title: 'Share Failed',
+            message: 'Could not copy link to clipboard.',
+            type: 'danger'
+        });
+    }
+  };
 
   /**
    * Resets the form to default values for a new task.
@@ -347,9 +435,102 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
       }
   };
 
+  const handleAutoFill = async () => {
+      if (!title) {
+          globalAlert({
+            title: 'Missing Title',
+            message: 'Please enter a title first so the AI can understand what needs to be filled.',
+            type: 'warning'
+          });
+          return;
+      }
+
+      setIsAILoading(true);
+      setAiThinking(null);
+      try {
+          const prompt = getAutoFillPrompt(title, description);
+
+          const response = await fetch('/api/ai/generate', {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint
+              },
+              body: JSON.stringify({ prompt, model: activeModel })
+          });
+
+          if (!response.ok) {
+              const err = await response.json();
+              throw new Error(err.error || "Failed to generate");
+          }
+
+          const data = await response.json();
+          if (data.response) {
+              let cleanResponse = data.response;
+              
+              // Extract thinking process if available
+              const thinkMatch = cleanResponse.match(/<think>([\s\S]*?)<\/think>/);
+              if (thinkMatch) {
+                  setAiThinking(thinkMatch[1].trim());
+                  cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+              }
+
+              // Extract JSON from markdown code block
+              const jsonMatch = cleanResponse.match(/```json\n([\s\S]*?)\n```/) || 
+                               cleanResponse.match(/```([\s\S]*?)```/) || 
+                               [null, cleanResponse];
+              
+              const jsonStr = jsonMatch[1].trim();
+              const result = JSON.parse(jsonStr);
+
+              // Update fields
+              if (result.description) updateDescriptionWithHistory(result.description);
+              if (result.category) setCategory(result.category);
+              if (result.project) {
+                  // Check if project exists, if not, create it
+                  if (!projectOptions.includes(result.project)) {
+                      await handleCreateProject(result.project);
+                  }
+                  setProject(result.project);
+              }
+              if (result.assignee) setAssignee(result.assignee);
+              if (result.priority) {
+                  const p = result.priority.charAt(0).toUpperCase() + result.priority.slice(1).toLowerCase();
+                  if (Object.values(Priority).includes(p as Priority)) {
+                      setPriority(p as Priority);
+                  }
+              }
+              if (result.dueDate) setDueDate(result.dueDate);
+              if (result.subTasks && Array.isArray(result.subTasks)) {
+                  const newSubtasks = result.subTasks.map((st: any) => ({
+                      id: crypto.randomUUID(),
+                      title: st.title || st.name || st,
+                      isCompleted: false
+                  }));
+                  setSubTasks(prev => [...prev, ...newSubtasks]);
+              }
+              
+              setIsEditingDesc(true);
+          }
+      } catch (error: any) {
+          console.error("Auto-Fill Error:", error);
+          globalAlert({
+            title: 'Auto-Fill Failed',
+            message: `Auto-Fill failed: ${error.message}`,
+            type: 'danger'
+          });
+      } finally {
+          setIsAILoading(false);
+      }
+  };
+
   const handleReformatMarkdown = async () => {
       if (!description) {
-          alert("Please enter some text to format first.");
+          globalAlert({
+            title: 'Missing Content',
+            message: 'Please enter some text to format first.',
+            type: 'warning'
+          });
           return;
       }
       
@@ -360,7 +541,10 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
           const response = await fetch('/api/ai/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint
+              },
               body: JSON.stringify({ prompt, model: activeModel })
           });
 
@@ -388,7 +572,11 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
       } catch (error: any) {
           console.error("AI Error:", error);
           disableAI();
-          alert("AI Service disconnected. Feature disabled.");
+          globalAlert({
+            title: 'AI Error',
+            message: 'AI Service disconnected. Feature disabled.',
+            type: 'danger'
+          });
       } finally {
           setIsAILoading(false);
       }
@@ -396,7 +584,11 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
   const handleGenerateDescription = async () => {
       if (!title) {
-          alert("Please enter a title first to give the AI some context.");
+          globalAlert({
+            title: 'Missing Title',
+            message: 'Please enter a title first to give the AI some context.',
+            type: 'warning'
+          });
           return;
       }
       
@@ -408,7 +600,10 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
           const response = await fetch('/api/ai/generate', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                  'Content-Type': 'application/json',
+                  'x-ollama-endpoint': ollamaEndpoint
+              },
               body: JSON.stringify({ prompt, model: activeModel })
           });
 
@@ -438,7 +633,11 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
       } catch (error: any) {
           console.error("AI Error:", error);
           disableAI();
-          alert("AI Service disconnected. Feature disabled.");
+          globalAlert({
+            title: 'AI Error',
+            message: 'AI Service disconnected. Feature disabled.',
+            type: 'danger'
+          });
       } finally {
           setIsAILoading(false);
       }
@@ -448,15 +647,32 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
   return (
     <>
-    <div className="task-modal fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => {
+    <div className="task-modal fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4" onClick={(e) => {
         // Close on backdrop click if not dirty, or ask confirmation
         if (e.target === e.currentTarget) {
             handleCloseRequest();
         }
     }}>
-      <div className="task-modal-container bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="task-modal-container bg-white md:rounded-lg shadow-2xl w-full h-full md:h-auto md:max-w-2xl overflow-hidden md:max-h-[90vh] flex flex-col">
         <div className="task-modal-header flex justify-between items-center p-4 border-b border-gray-100 bg-white sticky top-0 z-10">
-          <h2 className="text-xl font-bold text-gray-800">{initialTask ? 'Edit Task' : 'New Task'}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold text-gray-800">{initialTask ? 'Edit Task' : 'New Task'}</h2>
+            {initialTask && propProjectId && (
+              <button
+                type="button"
+                onClick={handleShare}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  isShared 
+                    ? 'bg-green-50 text-green-600 border border-green-100' 
+                    : 'bg-gray-50 text-gray-500 hover:text-blue-600 border border-gray-100 hover:border-blue-100 hover:bg-blue-50/30'
+                }`}
+                title="Copy direct link to this task"
+              >
+                {isShared ? <Check size={14} /> : <Share2 size={14} />}
+                <span>{isShared ? 'Link Copied!' : 'Share'}</span>
+              </button>
+            )}
+          </div>
           <button onClick={handleCloseRequest} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
             <X size={20} />
           </button>
@@ -472,140 +688,99 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
                 placeholder="e.g., Fix login bug"
               />
-              {isAIEnabled && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                        if (!title) {
-                            alert("Please enter a title first.");
-                            return;
-                        }
-                        setIsAILoading(true);
-                        try {
-                            const prompt = getAutoFillPrompt(title, description);
-
-                            const response = await fetch('/api/ai/generate', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ prompt, model: activeModel })
-                            });
-
-                            if (!response.ok) throw new Error("AI request failed");
-                            const data = await response.json();
-                            
-                            const jsonMatch = data.response.match(/```json\s*([\s\S]*?)\s*```/) || data.response.match(/{[\s\S]*}/);
-                            if (jsonMatch) {
-                                const result = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-                                
-                                if (result.description) {
-                                    updateDescriptionWithHistory(result.description);
-                                    setIsEditingDesc(true);
-                                }
-                                if (result.category) setCategory(result.category);
-                                if (result.project) setProject(result.project);
-                                if (result.assignee) setAssignee(result.assignee);
-                                if (result.priority) setPriority(result.priority as Priority);
-                                if (result.dueDate) setDueDate(result.dueDate);
-                                if (result.subTasks && Array.isArray(result.subTasks)) {
-                                    setSubTasks(result.subTasks.map((st: any) => ({
-                                        id: crypto.randomUUID(),
-                                        title: st.title,
-                                        isCompleted: false
-                                    })));
-                                }
-                            }
-                        } catch (e) {
-                            console.error("Auto-fill failed", e);
-                            alert("Failed to auto-fill details. Please try again.");
-                        } finally {
-                            setIsAILoading(false);
-                        }
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50"
-                    disabled={isAILoading || !title}
-                    title="Auto-fill details with AI"
-                  >
-                    {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                    <span className="text-sm font-medium">Auto-Fill</span>
-                  </button>
-              )}
+              <button
+                type="button"
+                onClick={handleAutoFill}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm ${
+                    isAIEnabled 
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-90' 
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                }`}
+                disabled={isAILoading || (isAIEnabled && !title)}
+                title={isAIEnabled ? "Auto-fill details with AI" : "Enable AI to use Auto-Fill"}
+              >
+                {isAILoading && <Loader2 size={16} className="animate-spin" />}
+                <span className="text-sm font-medium">Auto-Fill</span>
+              </button>
             </div>
           </div>
 
           {/* Grid fields */}
           <div className="form-grid grid grid-cols-1 md:grid-cols-2 gap-4">
-             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
-              <input
-                type="text"
+            <div className="form-group">
+              <SearchableSelect
+                label="Project"
                 value={project}
-                onChange={(e) => setProject(e.target.value)}
-                className="input-project w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setProject}
+                options={projectOptions}
+                placeholder="Select project..."
+                icon={<Folder size={18} />}
+                onCreateOption={handleCreateProject}
               />
             </div>
             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-              <input
-                type="text"
+              <SearchableSelect
+                label="Category"
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="input-category w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setCategory}
+                options={categoryOptions}
+                placeholder="Select category..."
+                icon={<Tag size={18} />}
+                onCreateOption={(val) => setCategoryOptions(prev => [...prev, val])}
               />
             </div>
             
-             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Assign To</label>
-              <div className="relative">
-                  <User size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    value={assignee}
-                    onChange={(e) => setAssignee(e.target.value)}
-                    className="input-assignee w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g. John Doe"
-                  />
-              </div>
+            <div className="form-group">
+              <SearchableSelect
+                label="Assign To"
+                value={assignee}
+                onChange={setAssignee}
+                options={assigneeOptions}
+                placeholder="Select assignee..."
+                icon={<User size={18} />}
+                onCreateOption={(val) => setAssigneeOptions(prev => [...prev, val])}
+              />
             </div>
 
             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-              <div className="relative">
-                  <Calendar size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="date"
-                    value={dueDate}
-                    onChange={(e) => setDueDate(e.target.value)}
-                    className="input-due-date w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-              </div>
+              <CustomDatePicker
+                label="Due Date"
+                value={dueDate}
+                onChange={setDueDate}
+              />
             </div>
 
             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="input-status w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {columns.map((col) => (
-                  <option key={col.id} value={col.id}>{col.title}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                label="Status"
+                value={columns.find(c => c.id === status)?.title || ''}
+                onChange={(val) => {
+                  const col = columns.find(c => c.title === val);
+                  if (col) setStatus(col.id);
+                }}
+                options={columns.map(c => c.title)}
+                optionStyles={columns.reduce((acc, col) => ({ 
+                  ...acc, 
+                  [col.title]: { bg: `${col.color}20`, text: col.color } 
+                }), {})}
+                placeholder="Select status..."
+                icon={<Activity size={18} className="text-gray-400" />}
+              />
             </div>
             <div className="form-group">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-              <select
+              <SearchableSelect
+                label="Priority"
                 value={priority}
-                onChange={(e) => setPriority(e.target.value as Priority)}
-                className="input-priority w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {Object.values(Priority).map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
+                onChange={(val) => setPriority(val as Priority)}
+                options={Object.values(Priority)}
+                optionStyles={prioritySettings}
+                placeholder="Select priority..."
+                icon={<AlertCircle size={18} className="text-gray-400" />}
+                showSearch={false}
+              />
             </div>
           </div>
 
@@ -617,24 +792,28 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
             <div className="flex items-center justify-between mb-1">
                 <label className="block text-sm font-medium text-gray-700">Description</label>
                 <div className="flex gap-2">
-                    {isAIEnabled && (
-                        <button
-                            type="button"
-                            onClick={() => setShowAIContext(!showAIContext)}
-                            className={`flex items-center gap-1 text-xs px-3 py-1 rounded-md transition-colors disabled:opacity-50 ${showAIContext ? 'bg-blue-200 text-blue-800' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
-                            title="Generate description with AI"
-                        >
-                            <Wand2 size={12} />
-                            AI Assist
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        onClick={() => isAIEnabled && setShowAIContext(!showAIContext)}
+                        className={`flex items-center gap-1 text-xs px-3 py-1 rounded-lg transition-colors ${
+                            !isAIEnabled
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                                : showAIContext 
+                                    ? 'bg-blue-200 text-blue-800' 
+                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        }`}
+                        title={isAIEnabled ? "Generate description with AI" : "Enable AI to use Assist"}
+                        disabled={!isAIEnabled}
+                    >
+                        AI Assist
+                    </button>
                     
                     {/* View/Edit Toggle Button */}
                     {!isEditingDesc && description && (
                         <button
                             type="button"
                             onClick={() => setIsEditingDesc(true)}
-                            className="flex items-center gap-1 text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                            className="flex items-center gap-1 text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
                         >
                             <Edit2 size={12} /> Edit Content
                         </button>
@@ -645,7 +824,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
             {isAIEnabled && showAIContext && (
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in">
                     {aiThinking && (
-                        <div className="mb-2 p-2 bg-white/80 border border-blue-100 rounded text-[10px] text-gray-600 max-h-32 overflow-y-auto">
+                        <div className="mb-2 p-2 bg-white/80 border border-blue-100 rounded-lg text-[10px] text-gray-600 max-h-32 overflow-y-auto">
                             <strong className="block text-blue-700 mb-1">AI Thought Process:</strong>
                             <div className="whitespace-pre-wrap font-mono">{aiThinking}</div>
                         </div>
@@ -657,27 +836,27 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                         value={userInstructions}
                         onChange={(e) => setUserInstructions(e.target.value)}
                         placeholder="e.g., 'Make it formal', 'Focus on technical details', 'Summarize briefly'..."
-                        className="w-full text-xs p-2 border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[60px] resize-none mb-2"
+                        className="w-full text-xs p-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 min-h-[60px] resize-none mb-2"
                     />
                     <div className="flex gap-2">
                         <button
                             type="button"
                             onClick={handleReformatMarkdown}
                             disabled={isAILoading}
-                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-gray-100 text-gray-700 py-1.5 rounded hover:bg-gray-200 transition-colors disabled:opacity-70 border border-gray-200"
+                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-gray-100 text-gray-700 py-1.5 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-70 border border-gray-200"
                             title="Format text to Markdown without changing words"
                         >
-                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Wand2 size={12} />}
+                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <OllamaIcon size={12} />}
                             Format Only
                         </button>
                         <button
                             type="button"
                             onClick={handleGenerateDescription}
                             disabled={isAILoading}
-                            className="flex-1 flex justify-center items-center gap-2 text-xs bg-blue-600 text-white py-1.5 rounded hover:bg-blue-700 transition-colors disabled:opacity-70"
+                            className="w-10 h-10 flex justify-center items-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70"
+                            title="Generate Description"
                         >
-                            {isAILoading ? <Loader2 size={12} className="animate-spin"/> : <Wand2 size={12} />}
-                            Generate Description
+                            {isAILoading ? <Loader2 size={16} className="animate-spin"/> : <OllamaIcon size={16} />}
                         </button>
                     </div>
                 </div>
@@ -690,7 +869,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                          <strong className="text-blue-700">AI Thought Process:</strong>
                          <X size={12} className="text-blue-400 hover:text-blue-700"/>
                      </div>
-                     <div className="p-2 bg-white/80 border border-blue-100 rounded text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px]">
+                     <div className="p-2 bg-white/80 border border-blue-100 rounded-lg text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono text-[10px]">
                          {aiThinking}
                      </div>
                  </div>
@@ -700,34 +879,34 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 <div className="relative border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
                     {/* Toolbar */}
                     <div className="flex items-center gap-1 p-1 bg-gray-50 border-b border-gray-200 overflow-x-auto">
-                        <button type="button" onClick={() => insertMarkdown('**')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Bold (Ctrl+B)">
+                        <button type="button" onClick={() => insertMarkdown('**')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Bold (Ctrl+B)">
                             <Bold size={14} />
                         </button>
-                        <button type="button" onClick={() => insertMarkdown('*')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Italic (Ctrl+I)">
+                        <button type="button" onClick={() => insertMarkdown('*')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Italic (Ctrl+I)">
                             <Italic size={14} />
                         </button>
-                        <button type="button" onClick={() => insertMarkdown('~~')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Strikethrough (Ctrl+Shift+S)">
+                        <button type="button" onClick={() => insertMarkdown('~~')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Strikethrough (Ctrl+Shift+S)">
                             <Strikethrough size={14} />
                         </button>
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                        <button type="button" onClick={() => insertMarkdown('#', 'block')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="Heading 1">
+                        <button type="button" onClick={() => insertMarkdown('#', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Heading 1">
                             <Heading size={14} />
                         </button>
-                        <button type="button" onClick={() => insertMarkdown('-', 'block')} className="p-1.5 rounded hover:bg-gray-200 text-gray-600" title="List Item">
+                        <button type="button" onClick={() => insertMarkdown('-', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="List Item">
                             <List size={14} />
                         </button>
                         <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                        <button type="button" onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                        <button type="button" onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
                             <RotateCcw size={14} />
                         </button>
-                        <button type="button" onClick={handleRedo} disabled={historyIndex >= descHistory.length - 1} className="p-1.5 rounded hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                        <button type="button" onClick={handleRedo} disabled={historyIndex >= descHistory.length - 1} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
                             <RotateCw size={14} />
                         </button>
                         <div className="flex-1"></div>
                         <button 
                             type="button" 
                             onClick={() => setIsEditingDesc(false)} 
-                            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200 flex items-center gap-1"
+                            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-lg font-bold hover:bg-blue-200 flex items-center gap-1"
                         >
                             <Check size={12} /> Done
                         </button>
@@ -760,7 +939,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                      <button
                         type="button"
                         onClick={() => setIsEditingDesc(true)}
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded shadow-sm border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 cursor-pointer"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded-lg shadow-sm border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 cursor-pointer"
                         title="Edit Description"
                      >
                         <Edit2 size={14} />

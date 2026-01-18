@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link as LinkIcon, Upload, Trash2, Image as ImageIcon, X, AlertTriangle, Check, Loader2 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
 
 interface MediaUploaderProps {
   media: string[];
@@ -49,6 +50,7 @@ const ImageThumbnail = ({ src, onPreview, onRemove }: { src: string, onPreview: 
 };
 
 export const MediaUploader: React.FC<MediaUploaderProps> = ({ media = [], onChange }) => {
+  const { alert: globalAlert } = useApp();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [compressModalOpen, setCompressModalOpen] = useState(false);
@@ -136,7 +138,11 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ media = [], onChan
           setPendingFile(null);
       } catch (error) {
           console.error("Compression failed", error);
-          alert("Failed to compress image.");
+          globalAlert({
+            title: 'Compression Failed',
+            message: 'Failed to compress image.',
+            type: 'danger'
+          });
       } finally {
           setIsCompressing(false);
       }
@@ -242,7 +248,7 @@ export const MediaUploader: React.FC<MediaUploaderProps> = ({ media = [], onChan
     {/* Compression Confirmation Modal */}
     {compressModalOpen && createPortal(
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-lg shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
                 <div className="flex flex-col items-center text-center">
                     <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-4">
                         <AlertTriangle size={24} />

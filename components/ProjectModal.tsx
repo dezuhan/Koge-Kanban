@@ -54,8 +54,8 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ isOpen, onClose, onSave, in
   if (!isOpen) return null;
 
   return (
-    <div className="project-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="project-modal-container bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="project-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
+      <div className="project-modal-container bg-white md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:max-w-md overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
         <div className="project-modal-header flex justify-between items-center p-4 border-b border-gray-100">
           <h2 className="text-xl font-bold text-gray-800">{initialProject ? 'Edit Project' : 'New Project'}</h2>
           <button onClick={onClose} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
@@ -63,7 +63,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({ isOpen, onClose, onSave, in
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="project-modal-form p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="project-modal-form flex-1 overflow-y-auto p-6 space-y-4">
           <div className="form-group">
             <label className="block text-sm font-medium text-gray-700 mb-1">Project Name</label>
             <input

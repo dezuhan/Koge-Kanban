@@ -6,12 +6,12 @@ import { Task, Column, Priority, SortOption, Project } from '../types';
 import BoardView from '../components/BoardView';
 import TableView from '../components/TableView';
 import TaskModal from '../components/TaskModal';
-import SettingsModal from '../components/SettingsModal';
 import ConfirmModal from '../components/ConfirmModal';
 import ColumnModal from '../components/ColumnModal';
 import SummaryModal from '../components/SummaryModal';
-import AISettingsModal from '../components/AISettingsModal';
-import { Plus, Layout, List, Search, Filter, Settings, ChevronLeft, ChevronDown, Edit2, Loader2, Activity, ArrowUpDown, Calendar, AlertCircle, MessageSquare, Wand2, ToggleLeft, ToggleRight } from 'lucide-react';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { Plus, Layout, List, Filter, Settings, ChevronLeft, ChevronDown, Edit2, Loader2, Activity, ArrowUpDown, Calendar, AlertCircle, MessageSquare, Wand2, ToggleLeft, ToggleRight, Sparkles, Trash2, Folder, Tag, SlidersHorizontal, Search } from 'lucide-react';
+import { OllamaIcon } from '../components/OllamaIcon';
 
 import ProjectModal from '../components/ProjectModal';
 import { getProjectSummaryPrompt } from '../fine-tunning/summary/report-prompt';
@@ -27,7 +27,25 @@ const TEMPLATE_COLUMNS: Column[] = [
 const BoardPage: React.FC = () => {
   const { projectId, taskId } = useParams();
   const navigate = useNavigate();
-  const { projects, setProjects, prioritySettings, setPrioritySettings, isAIEnabled, toggleAI, disableAI, activeModel, isChatOpen, setIsChatOpen, setCurrentContext, boardRefreshTrigger } = useApp();
+  const { 
+    projects, 
+    setProjects, 
+    prioritySettings, 
+    setPrioritySettings, 
+    isAIEnabled, 
+    toggleAI, 
+    disableAI, 
+    activeModel, 
+    isChatOpen, 
+    setIsChatOpen, 
+    isSearchOpen,
+    setIsSearchOpen,
+    setCurrentContext, 
+    boardRefreshTrigger, 
+    ollamaEndpoint,
+    confirm: globalConfirm,
+    alert: globalAlert
+  } = useApp();
   
   // Ref to block deep link effect during save operations to prevent modal reopening
   const isSavingRef = React.useRef(false);
@@ -40,14 +58,16 @@ const BoardPage: React.FC = () => {
   
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isColumnModalOpen, setIsColumnModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const [isProjectFilterOpen, setIsProjectFilterOpen] = useState(false);
+  const [isCategoryFilterOpen, setIsCategoryFilterOpen] = useState(false);
+  const [isSortFilterOpen, setIsSortFilterOpen] = useState(false);
   const { isAILoading } = useApp();
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryContent, setSummaryContent] = useState('');
@@ -57,18 +77,11 @@ const BoardPage: React.FC = () => {
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [editingColumn, setEditingColumn] = useState<Column | null>(null);
   
-  // Quick Settings (API Base)
-  const [isSettingsMenuOpen, setIsSettingsMenuOpen] = useState(false);
-  const [apiBaseDraft, setApiBaseDraft] = useState('');
-  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
-  const API_BASE_STORAGE_KEY = 'koge_api_base_url';
-  const defaultApiBaseUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    return window.location.origin;
-  }, []);
+  // Multi-select state
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const isMultiSelectActive = selectedTaskIds.length > 0;
 
   // Filters
-  const [searchQuery, setSearchQuery] = useState('');
   const [filterProject, setFilterProject] = useState('All');
   const [filterCategory, setFilterCategory] = useState('All');
   const [sortBy, setSortBy] = useState<SortOption>('none');
@@ -78,7 +91,7 @@ const BoardPage: React.FC = () => {
       console.log(`[BoardPage] Resolving Project ID: ${projectId}`);
       console.log(`[BoardPage] Available Projects:`, projects);
       
-      if (!projects) return;
+      if (!projects || projects === null) return;
 
       const proj = projects.find(p => p.id === projectId);
       
@@ -87,7 +100,7 @@ const BoardPage: React.FC = () => {
           setCurrentProject(proj);
       } else {
           console.log(`[BoardPage] Project NOT found.`);
-          if (projects.length > 0) {
+          if (projects && projects.length > 0) {
               console.warn(`[BoardPage] Redirecting to home because project list is populated but ID not found.`);
               navigate('/');
           } else {
@@ -95,24 +108,6 @@ const BoardPage: React.FC = () => {
           }
       }
   }, [projectId, projects, navigate]);
-
-  // Handle Quick Settings Menu Side-Effects
-  useEffect(() => {
-    if (!isSettingsMenuOpen || typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
-    setApiBaseDraft(stored);
-  }, [isSettingsMenuOpen]);
-
-  useEffect(() => {
-    if (!isSettingsMenuOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target as Node)) {
-        setIsSettingsMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSettingsMenuOpen]);
 
   // 2. Load Board Data
   useEffect(() => {
@@ -190,24 +185,6 @@ const BoardPage: React.FC = () => {
 
   // --- Handlers ---
 
-  const normalizeApiBase = (value: string) => value.replace(/\/+$/, '');
-
-  const handleSaveApiBase = () => {
-    if (typeof window === 'undefined') return;
-    const previous = window.localStorage.getItem(API_BASE_STORAGE_KEY) || '';
-    const next = normalizeApiBase(apiBaseDraft.trim());
-    if (next) {
-      window.localStorage.setItem(API_BASE_STORAGE_KEY, next);
-    } else {
-      window.localStorage.removeItem(API_BASE_STORAGE_KEY);
-    }
-    const changed = previous !== next;
-    setIsSettingsMenuOpen(false);
-    if (changed) {
-      window.location.reload();
-    }
-  };
-
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'createdAt'> | Task) => {
     if ('id' in taskData) {
       // Set saving flag to true to block deep link effect
@@ -239,6 +216,29 @@ const BoardPage: React.FC = () => {
       setTaskToDelete(null);
       setIsDeleteModalOpen(false);
     }
+  };
+
+  const handleDeleteSelectedTasks = () => {
+    if (selectedTaskIds.length === 0) return;
+    setIsBulkDeleteModalOpen(true);
+  };
+
+  const handleConfirmBulkDelete = () => {
+    setTasks(prev => prev.filter(t => !selectedTaskIds.includes(t.id)));
+    setSelectedTaskIds([]);
+    setIsBulkDeleteModalOpen(false);
+  };
+
+  const handleToggleTaskSelection = (taskId: string) => {
+    setSelectedTaskIds(prev => 
+      prev.includes(taskId) 
+        ? prev.filter(id => id !== taskId) 
+        : [...prev, taskId]
+    );
+  };
+
+  const handleClearSelection = () => {
+    setSelectedTaskIds([]);
   };
 
   const handleEditTask = (task: Task) => {
@@ -293,12 +293,12 @@ const BoardPage: React.FC = () => {
   };
 
   const handleUpdateProject = (updatedData: Pick<Project, 'id' | 'name' | 'description' | 'color'>) => {
-      if (currentProject) {
+      if (currentProject && projects) {
           const updatedProject = { ...currentProject, ...updatedData };
           setCurrentProject(updatedProject);
           
           // Update in global list
-          setProjects(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+          setProjects(prev => prev ? prev.map(p => p.id === updatedProject.id ? updatedProject : p) : null);
           
           // Persist to DB immediately
           db.saveProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
@@ -326,15 +326,26 @@ const BoardPage: React.FC = () => {
 
   const handleDeleteColumn = (id: string) => {
     if (columns.length <= 1) {
-      alert("You must have at least one column.");
+      globalAlert({
+        title: 'Cannot Delete',
+        message: 'You must have at least one column.',
+        type: 'warning'
+      });
       return;
     }
-    if (confirm("Are you sure? Tasks in this column will be moved to the first available column.")) {
-       const newColumns = columns.filter(c => c.id !== id);
-       const fallbackStatus = newColumns[0].id;
-       setTasks(prev => prev.map(t => t.status === id ? { ...t, status: fallbackStatus } : t));
-       setColumns(newColumns);
-    }
+
+    globalConfirm({
+      title: 'Delete Column?',
+      message: 'Are you sure? Tasks in this column will be moved to the first available column.',
+      type: 'danger',
+      confirmText: 'Delete',
+      onConfirm: () => {
+        const newColumns = columns.filter(c => c.id !== id);
+        const fallbackStatus = newColumns[0].id;
+        setTasks(prev => prev.map(t => t.status === id ? { ...t, status: fallbackStatus } : t));
+        setColumns(newColumns);
+      }
+    });
   };
 
   const handleColumnMove = (activeId: string, overId: string) => {
@@ -354,15 +365,6 @@ const BoardPage: React.FC = () => {
   // Filter & Sort Logic
   const processedTasks = useMemo(() => {
     let result = [...tasks];
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(t => 
-        t.title.toLowerCase().includes(q) || 
-        t.category.toLowerCase().includes(q) ||
-        t.project.toLowerCase().includes(q)
-      );
-    }
 
     if (filterProject !== 'All') {
         result = result.filter(t => t.project === filterProject);
@@ -387,7 +389,7 @@ const BoardPage: React.FC = () => {
     }
 
     return result;
-  }, [tasks, searchQuery, viewMode, filterProject, filterCategory, sortBy]);
+  }, [tasks, viewMode, filterProject, filterCategory, sortBy]);
 
   // Determine if Drag and Drop should be enabled
   // We allow dragging even if sorted/filtered to enable moving tasks between columns.
@@ -396,8 +398,8 @@ const BoardPage: React.FC = () => {
 
   // Determine if manual reordering (same column) is allowed
   const isManualSort = useMemo(() => {
-      return sortBy === 'none' && !searchQuery && filterProject === 'All' && filterCategory === 'All';
-  }, [sortBy, searchQuery, filterProject, filterCategory]);
+      return sortBy === 'none';
+  }, [sortBy]);
 
   // --- Summary Logic ---
   const handleGenerateSummary = async () => {
@@ -444,7 +446,7 @@ const BoardPage: React.FC = () => {
               method: 'POST',
               headers: { 
                   'Content-Type': 'application/json',
-                  'x-ollama-endpoint': (useApp as any)().ollamaEndpoint // Quick fix for scope
+                  'x-ollama-endpoint': ollamaEndpoint
               },
               body: JSON.stringify({ prompt, model: activeModel })
           });
@@ -458,7 +460,11 @@ const BoardPage: React.FC = () => {
           console.error("Summary Error:", error);
           setSummaryContent("Failed to generate summary. AI service disconnected.");
           disableAI(); // Automatically disable AI features
-          alert("AI Service Unreachable. AI features have been disabled.");
+          globalAlert({
+            title: 'AI Service Unreachable',
+            message: 'AI Service Unreachable. AI features have been disabled.',
+            type: 'danger'
+          });
       } finally {
           setSummaryLoading(false);
       }
@@ -496,343 +502,294 @@ const BoardPage: React.FC = () => {
   return (
     <>
       {/* Header */}
-      <header className="app-header bg-white border-b border-gray-200 px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between shadow-sm z-10 gap-4 min-h-[73px]">
-        <div className="flex items-center gap-3">
-            <button 
-                onClick={() => !isAILoading && navigate('/')}
-                className={`btn-back p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-blue-600 transition ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={isAILoading ? "AI is processing..." : "Back to Projects"}
-                disabled={isAILoading}
-            >
-                <ChevronLeft size={24} />
-            </button>
-            <div className="flex flex-col group project-info relative">
-                <div className="flex items-center gap-2">
-                    <button 
-                        disabled={isAILoading}
-                        onClick={() => !isAILoading && setIsProjectDropdownOpen(!isProjectDropdownOpen)}
-                        className={`flex items-center gap-2 text-left hover:bg-gray-100 px-2 py-1 -ml-2 rounded-lg transition-colors group/title ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                        <h1 className="project-title text-xl font-bold text-gray-800 leading-none">
-                            {currentProject.name}
-                        </h1>
-                        <ChevronDown 
-                            size={18} 
-                            className={`text-gray-400 group-hover/title:text-blue-500 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`} 
-                        />
-                    </button>
-                    <button 
-                        onClick={() => setIsProjectModalOpen(true)}
-                        className="btn-edit-project text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-100"
-                        title="Edit Project Details"
-                    >
-                        <Edit2 size={16} />
-                    </button>
-                </div>
-                <span className="project-desc text-xs text-gray-500 mt-1">{currentProject.description}</span>
+      <header className="app-header bg-white border-b border-gray-200 z-30 shadow-sm relative">
+        {/* Top Row: Navigation, Project Info & Add Task */}
+        <div className="px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+                <button 
+                    onClick={() => !isAILoading && navigate('/')}
+                    className="btn-back w-10 h-10 flex items-center justify-center hover:bg-gray-100 rounded-lg text-gray-500 hover:text-blue-600 transition shrink-0"
+                    disabled={isAILoading}
+                >
+                    <ChevronLeft size={24} />
+                </button>
+                <div className="flex flex-col min-w-0 group relative">
+                    <div className="flex items-center gap-1">
+                        <button 
+                            disabled={isAILoading}
+                            onClick={() => !isAILoading && setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+                            className="flex items-center gap-1 md:gap-2 text-left hover:bg-gray-50 px-1.5 py-0.5 -ml-1.5 rounded-lg transition-colors group/title min-w-0"
+                        >
+                            <h1 className="project-title text-base md:text-xl font-bold text-gray-800 leading-tight truncate">
+                                {currentProject.name}
+                            </h1>
+                            <ChevronDown 
+                                size={14} 
+                                className={`text-gray-400 group-hover/title:text-blue-500 transition-transform flex-shrink-0 ${isProjectDropdownOpen ? 'rotate-180' : ''}`} 
+                            />
+                        </button>
+                        <button 
+                            onClick={() => setIsProjectModalOpen(true)}
+                            className="btn-edit-project text-gray-300 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-gray-100 shrink-0"
+                        >
+                            <Edit2 size={12} />
+                        </button>
+                    </div>
+                    <span className="project-desc text-[10px] md:text-xs text-gray-400 truncate md:block hidden">
+                        {currentProject.description}
+                    </span>
 
-                {/* Project Switcher Dropdown */}
-                {isProjectDropdownOpen && (
-                    <>
-                        <div 
-                            className="fixed inset-0 z-20" 
-                            onClick={() => setIsProjectDropdownOpen(false)}
-                        />
-                        <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-30 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                            <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-50 mb-1">
-                                Switch Board
-                            </div>
-                            <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                                {projects.map((proj) => (
+                    {/* Project Switcher Dropdown */}
+                    {isProjectDropdownOpen && (
+                        <>
+                            <div 
+                                className="fixed inset-0 z-20" 
+                                onClick={() => setIsProjectDropdownOpen(false)}
+                            />
+                            <div className="absolute top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-30 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-50 mb-1">
+                                    Switch Board
+                                </div>
+                                <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                                    {projects?.map((proj) => (
+                                        <button
+                                            key={proj.id}
+                                            disabled={isAILoading}
+                                            onClick={() => {
+                                                if (isAILoading) return;
+                                                navigate(`/board/${proj.id}`);
+                                                setIsProjectDropdownOpen(false);
+                                            }}
+                                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
+                                                proj.id === currentProject.id 
+                                                    ? 'bg-blue-50 text-blue-700 font-bold' 
+                                                    : 'text-gray-600 hover:bg-gray-50'
+                                            } ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            <div className={`w-2 h-2 rounded-full ${proj.id === currentProject.id ? 'bg-blue-500' : 'bg-gray-300'}`} />
+                                            <span className="truncate">{proj.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="border-t border-gray-50 mt-1 pt-1">
                                     <button
-                                        key={proj.id}
                                         disabled={isAILoading}
                                         onClick={() => {
                                             if (isAILoading) return;
-                                            navigate(`/board/${proj.id}`);
+                                            navigate('/');
                                             setIsProjectDropdownOpen(false);
                                         }}
-                                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors ${
-                                            proj.id === currentProject.id 
-                                                ? 'bg-blue-50 text-blue-700 font-bold' 
-                                                : 'text-gray-600 hover:bg-gray-50'
-                                        } ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
-                                        <div className={`w-2 h-2 rounded-full ${proj.id === currentProject.id ? 'bg-blue-500' : 'bg-gray-300'}`} />
-                                        <span className="truncate">{proj.name}</span>
+                                        <Layout size={14} />
+                                        <span>All Boards Dashboard</span>
                                     </button>
-                                ))}
+                                </div>
                             </div>
-                            <div className="border-t border-gray-50 mt-1 pt-1">
-                                <button
-                                    disabled={isAILoading}
-                                    onClick={() => {
-                                        if (isAILoading) return;
-                                        navigate('/');
-                                        setIsProjectDropdownOpen(false);
-                                    }}
-                                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors ${isAILoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                >
-                                    <Layout size={14} />
-                                    <span>All Boards Dashboard</span>
-                                </button>
-                            </div>
-                        </div>
-                    </>
-                )}
+                        </>
+                    )}
+                </div>
+
+                {/* Desktop Search Bar (Memenuhi Halaman) */}
+                <div 
+                    onClick={() => setIsSearchOpen(true)}
+                    className="hidden lg:flex items-center flex-1 mx-8 bg-gray-50 border border-gray-200 rounded-xl px-4 h-11 cursor-pointer hover:bg-white hover:border-blue-300 transition-all group shadow-sm"
+                >
+                    <Search size={18} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                    <span className="ml-3 text-sm text-gray-400 font-medium">Search tasks, projects, or use AI...</span>
+                    <div className="ml-auto flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                        <kbd className="bg-white border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">Ctrl</kbd>
+                        <kbd className="bg-white border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">K</kbd>
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+                <button 
+                    onClick={handleNewTask}
+                    className="flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white h-10 px-3 md:px-5 rounded-lg font-bold transition shadow-md shadow-blue-500/20 hover:shadow-lg active:scale-95 group"
+                >
+                    <Plus size={20} />
+                    <span className="hidden md:inline ml-1.5">Add Task</span>
+                </button>
             </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 md:gap-4 app-actions w-full md:w-auto justify-between md:justify-end">
-            {/* Language Switcher Removed */}
-            <div className="search-box relative w-full sm:w-auto order-last sm:order-none mt-2 sm:mt-0">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input 
-                    type="text" 
-                    placeholder="Search tasks..." 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="input-search pl-9 pr-4 py-2 bg-gray-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-64"
-                />
-            </div>
-            
-            <div className="flex items-center gap-2">
-            <div className="view-switcher flex bg-gray-100 p-1 rounded-lg">
-                <button 
-                    onClick={() => setViewMode('board')}
-                    className={`btn-view-board p-2 rounded-md transition-all ${viewMode === 'board' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <Layout size={18} />
-                </button>
-                <button 
-                    onClick={() => setViewMode('table')}
-                    className={`btn-view-table p-2 rounded-md transition-all ${viewMode === 'table' ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    <List size={18} />
-                </button>
-            </div>
-
-                {/* AI Toggle Controls */}
-                <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+        {/* Bottom Row: View Switcher & Tools */}
+        <div className="px-4 md:px-6 pb-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
+                <div className="view-switcher flex bg-gray-100 p-1 rounded-lg shrink-0 h-10 items-center">
                     <button 
-                        onClick={async () => {
-                            if (!isAIEnabled) {
-                                setIsTogglingAI(true);
-                                setIsAISettingsOpen(true);
-                                setIsTogglingAI(false);
-                                return; 
-                            }
-                            setIsTogglingAI(true);
-                            await toggleAI();
-                            setIsTogglingAI(false);
-                        }}
-                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-all font-bold border text-xs ${
-                            isAIEnabled 
-                                ? 'bg-white text-blue-700 border-blue-200 shadow-sm' 
-                                : 'bg-transparent text-gray-500 border-transparent hover:bg-gray-200'
-                        }`}
-                        disabled={isTogglingAI}
-                        title={isAIEnabled ? "Disable AI" : "Enable AI"}
+                        onClick={() => setViewMode('board')}
+                        className={`h-full px-2 md:px-3 rounded-md transition-all flex items-center justify-center ${viewMode === 'board' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                     >
-                        {isTogglingAI ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-                        <span className="hidden sm:inline">AI</span>
-                        {isAIEnabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                        <Layout size={16} />
                     </button>
-                    <div className="relative">
-                        <button
-                            onClick={() => setIsSettingsMenuOpen(prev => !prev)}
-                            className="p-1.5 rounded-md text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all"
-                            title="Quick Settings"
-                        >
-                            <Settings size={16} />
-                        </button>
-                    </div>
+                    <button 
+                        onClick={() => setViewMode('table')}
+                        className={`h-full px-2 md:px-3 rounded-md transition-all flex items-center justify-center ${viewMode === 'table' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <List size={16} />
+                    </button>
                 </div>
 
-                {isAIEnabled && (
-                    <button 
-                        onClick={openSummary}
-                        className="btn-summary flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-2 rounded-lg text-sm font-medium transition"
-                        title="AI Project Summary"
-                    >
-                        <Activity size={18} />
-                        <span className="hidden sm:inline">Summary</span>
-                    </button>
-                )}
+                <div className="h-6 w-px bg-gray-200 hidden sm:block shrink-0"></div>
 
-                {isAIEnabled && (
-                    <button 
-                        onClick={() => setIsChatOpen(!isChatOpen)}
-                        className={`btn-chat flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition border ${
-                            isChatOpen 
-                                ? 'bg-blue-600 text-white border-blue-600' 
-                                : 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200'
-                        }`}
-                        title="AI Chatbot"
-                    >
-                        <MessageSquare size={18} />
-                        <span className="hidden sm:inline">AI Chat</span>
-                    </button>
-                )}
-
-            <div className="relative" ref={settingsMenuRef}>
                 <button 
-                    onClick={() => setIsSettingsMenuOpen(prev => !prev)}
-                    className="btn-settings p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                    onClick={async () => {
+                        setIsTogglingAI(true);
+                        await toggleAI();
+                        setIsTogglingAI(false);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 md:px-4 h-10 rounded-lg transition-all font-bold text-xs shrink-0 ${
+                        isAIEnabled 
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
+                            : 'bg-white text-gray-400 border border-gray-200 hover:border-gray-300'
+                    }`}
+                    disabled={isTogglingAI}
+                >
+                    {isTogglingAI && <Loader2 size={14} className="animate-spin" />}
+                    <span>AI</span>
+                    {isAIEnabled ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                </button>
+
+                <button 
+                    onClick={() => setIsSearchOpen(true)}
+                    className="lg:hidden w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-lg transition-all shrink-0"
+                    title="Smart Search (Ctrl+K)"
+                >
+                    <Search size={18} />
+                </button>
+
+                <button 
+                    onClick={() => navigate('/settings')}
+                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-lg transition-all shrink-0"
                     title="Settings"
                 >
-                    <Settings size={20} />
+                    <Settings size={18} />
                 </button>
-                {isSettingsMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg p-4 z-50">
-                        <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-                            Quick Settings
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-xs font-medium text-gray-600">API Base Domain</label>
-                            <input
-                                type="url"
-                                value={apiBaseDraft}
-                                onChange={(e) => setApiBaseDraft(e.target.value)}
-                                placeholder="https://abcd.ngrok-free.app"
-                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
-                            />
-                            <p className="text-[10px] text-gray-500 leading-tight">
-                                Kosongkan untuk default ({defaultApiBaseUrl}/api).
-                            </p>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between">
-                            <button
-                                onClick={() => {
-                                    setIsSettingsMenuOpen(false);
-                                    setIsSettingsOpen(true);
-                                }}
-                                className="text-xs text-gray-500 hover:text-gray-700"
-                            >
-                                More settings
-                            </button>
-                            <button
-                                onClick={handleSaveApiBase}
-                                className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
-                            >
-                                Save & Reload
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
 
-            <button 
-                onClick={handleNewTask}
-                    className="btn-new-task flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg font-medium transition shadow-sm hover:shadow-md text-sm md:text-base"
-            >
-                <Plus size={18} />
-                <span className="hidden sm:inline">Add Task</span>
-                    <span className="sm:hidden">Task</span>
-            </button>
+                <button 
+                    onClick={() => isAIEnabled && setIsChatOpen(!isChatOpen)}
+                    className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all border shrink-0 ${
+                        !isAIEnabled
+                            ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed opacity-50'
+                            : isChatOpen 
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20' 
+                                : 'bg-white text-gray-500 hover:text-blue-600 border-gray-200 hover:border-blue-100 hover:bg-blue-50/30'
+                    }`}
+                    disabled={!isAIEnabled}
+                >
+                    <MessageSquare size={18} />
+                </button>
+
+                <button 
+                    onClick={openSummary}
+                    disabled={!isAIEnabled}
+                    className={`btn-summary flex items-center justify-center px-3 md:px-4 h-10 rounded-lg transition border shrink-0 ${
+                        isAIEnabled 
+                            ? 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200 shadow-sm' 
+                            : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed opacity-60'
+                    }`}
+                >
+                    <Activity size={18} />
+                    <span className="hidden lg:inline ml-2 text-xs font-bold">Summary</span>
+                </button>
             </div>
         </div>
       </header>
 
       {/* Toolbar */}
-      <div className="app-toolbar px-4 md:px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-         <div className="filters flex flex-wrap items-center gap-4 text-sm text-gray-600">
-            <div className="filter-project flex items-center gap-2">
-                <span className="font-medium">Sub-Project:</span>
-                <select 
-                    value={filterProject} 
-                    onChange={(e) => setFilterProject(e.target.value)}
-                    className="bg-white border border-gray-200 rounded px-2 py-1 outline-none text-gray-800 cursor-pointer focus:border-blue-500 max-w-[150px]"
-                >
-                    {uniqueProjects.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-            </div>
+      <div className="app-toolbar px-4 md:px-6 py-2 md:py-3 flex items-center justify-between gap-4 sticky top-0 bg-slate-50/80 backdrop-blur-md z-[25] border-b border-gray-100">
+            <div className="filters flex items-center gap-3 md:gap-6 text-sm text-gray-600 flex-1 min-w-0">
+                {/* Project Filter */}
+                <div className="filter-project min-w-[120px] md:min-w-[160px]">
+                    <SearchableSelect
+                        value={filterProject}
+                        onChange={setFilterProject}
+                        options={uniqueProjects}
+                        placeholder="Project..."
+                        icon={<Folder size={14} className="text-gray-400" />}
+                    />
+                </div>
 
-            <div className="filter-category flex items-center gap-2">
-                <span className="font-medium">Category:</span>
-                <select 
-                    value={filterCategory} 
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                    className="bg-white border border-gray-200 rounded px-2 py-1 outline-none text-gray-800 cursor-pointer focus:border-blue-500 max-w-[150px]"
-                >
-                    {uniqueCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-            </div>
-            
-            <div className="w-px h-6 bg-gray-300 mx-1 hidden sm:block"></div>
+                {/* Category Filter */}
+                <div className="filter-category min-w-[120px] md:min-w-[160px]">
+                    <SearchableSelect
+                        value={filterCategory}
+                        onChange={setFilterCategory}
+                        options={uniqueCategories}
+                        placeholder="Category..."
+                        icon={<Tag size={14} className="text-gray-400" />}
+                    />
+                </div>
+                
+                <div className="w-px h-4 bg-gray-200 mx-1 hidden sm:block shrink-0"></div>
 
-            <div className="sort-controls flex items-center gap-2">
-                 <span className="font-medium">Sort:</span>
-                 <div className="flex bg-gray-100 p-0.5 rounded-lg border border-gray-200">
-                    <button
-                        onClick={() => setSortBy('none')}
-                        className={`px-2 py-1 text-xs rounded transition-all ${sortBy === 'none' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
-                        title="Manual Order (Drag & Drop)"
-                    >
-                        Manual
-                    </button>
-                    <button
-                        onClick={() => setSortBy('priority')}
-                        className={`px-2 py-1 text-xs rounded transition-all flex items-center gap-1 ${sortBy === 'priority' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
-                        title="Sort by Priority"
-                    >
-                        <AlertCircle size={12} />
-                        Priority
-                    </button>
-                    <button
-                        onClick={() => setSortBy('dueDate')}
-                        className={`px-2 py-1 text-xs rounded transition-all flex items-center gap-1 ${sortBy === 'dueDate' ? 'bg-white shadow text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
-                        title="Sort by Due Date"
-                    >
-                        <Calendar size={12} />
-                        Date
-                    </button>
-                 </div>
+                {/* Sort Control */}
+                <div className="sort-controls min-w-[120px] md:min-w-[160px]">
+                    <SearchableSelect
+                        value={sortBy === 'none' ? 'All' : sortBy === 'priority' ? 'Priority' : 'Due Date'}
+                        onChange={(val) => setSortBy(val === 'All' ? 'none' : val === 'Priority' ? 'priority' : 'dueDate')}
+                        options={['All', 'Priority', 'Due Date']}
+                        placeholder="Sort by..."
+                        icon={<SlidersHorizontal size={14} className="text-gray-400" />}
+                    />
+                </div>
             </div>
-         </div>
-         <div className="task-count text-sm text-gray-500 font-medium">
-             {processedTasks.length} tasks
-         </div>
+            <div className="task-count text-[10px] md:text-sm text-gray-400 font-black uppercase tracking-widest bg-gray-100/50 px-2 py-1 rounded-lg shrink-0 hidden lg:block">
+                {processedTasks.length} tasks
+            </div>
       </div>
 
-      {/* Content Area */}
-      <main className="app-content flex-1 overflow-hidden px-4 md:px-6 pb-6 relative">
-        {boardLoading && (
-             <div className="loading-overlay absolute inset-0 bg-white/50 backdrop-blur-[1px] z-20 flex items-center justify-center">
-                 <Loader2 className="animate-spin text-blue-600" size={32} />
-             </div>
-        )}
-        {viewMode === 'board' ? (
-            <BoardView 
-                tasks={processedTasks} 
-                columns={columns}
-                onTaskMove={isDragEnabled ? handleTaskMove : () => {}} 
-                onTaskReorder={isManualSort ? handleTaskReorder : undefined}
-                onEditTask={handleEditTask}
-                onDeleteTask={confirmDeleteTask}
-                onDuplicateTask={handleDuplicateTask}
-                onToggleCheck={handleToggleCheck}
-                prioritySettings={prioritySettings}
-                onAddColumn={handleAddColumn}
-                onEditColumn={handleEditColumn}
-                onDeleteColumn={handleDeleteColumn}
-                onColumnMove={isDragEnabled ? handleColumnMove : () => {}}
-                onAddTask={handleAddTaskToColumn}
-                isDragEnabled={isDragEnabled}
-            />
-        ) : (
-            <TableView 
-                tasks={processedTasks}
-                columns={columns}
-                onEdit={handleEditTask}
-                onDelete={confirmDeleteTask}
-                onToggleCheck={handleToggleCheck}
-                onUpdateStatus={handleUpdateTaskStatus}
-                onUpdatePriority={handleUpdateTaskPriority}
-                prioritySettings={prioritySettings}
-            />
-        )}
-      </main>
+       {/* Content Area */}
+       <main className="app-content flex-1 overflow-hidden px-4 md:px-6 pb-6 relative flex flex-col">
+         {boardLoading && (
+              <div className="loading-overlay absolute inset-0 bg-white/50 backdrop-blur-[1px] z-20 flex items-center justify-center">
+                  <Loader2 className="animate-spin text-blue-600" size={32} />
+              </div>
+         )}
+         <div className="flex-1 min-h-0 flex flex-col">
+             {viewMode === 'board' ? (
+                 <BoardView 
+                     tasks={processedTasks} 
+                     columns={columns}
+                     onTaskMove={isDragEnabled ? handleTaskMove : () => {}} 
+                     onTaskReorder={isManualSort ? handleTaskReorder : undefined}
+                     onEditTask={handleEditTask}
+                     onDeleteTask={confirmDeleteTask}
+                     onDuplicateTask={handleDuplicateTask}
+                     onToggleCheck={handleToggleCheck}
+                     prioritySettings={prioritySettings}
+                     onAddColumn={handleAddColumn}
+                     onEditColumn={handleEditColumn}
+                     onDeleteColumn={handleDeleteColumn}
+                     onColumnMove={isDragEnabled ? handleColumnMove : () => {}}
+                     onAddTask={handleAddTaskToColumn}
+                     isDragEnabled={isDragEnabled}
+                     selectedTaskIds={selectedTaskIds}
+                     onToggleTaskSelection={handleToggleTaskSelection}
+                     onSetSelection={setSelectedTaskIds}
+                     projectId={currentProject.id}
+                 />
+             ) : (
+                 <TableView 
+                     tasks={processedTasks}
+                     columns={columns}
+                     onEdit={handleEditTask}
+                     onDelete={confirmDeleteTask}
+                     onToggleCheck={handleToggleCheck}
+                     onUpdateStatus={handleUpdateTaskStatus}
+                     onUpdatePriority={handleUpdateTaskPriority}
+                     prioritySettings={prioritySettings}
+                     selectedTaskIds={selectedTaskIds}
+                     onToggleTaskSelection={handleToggleTaskSelection}
+                     onSetSelection={setSelectedTaskIds}
+                     projectId={currentProject.id}
+                 />
+             )}
+         </div>
+       </main>
 
       <TaskModal 
         isOpen={isModalOpen} 
@@ -842,20 +799,9 @@ const BoardPage: React.FC = () => {
         columns={columns}
         defaultStatus={newTaskStatus}
         currentProjectName={currentProject.name}
+        projectId={currentProject.id}
       />
       
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={prioritySettings}
-        onSave={setPrioritySettings}
-        onReset={() => setPrioritySettings({
-            [Priority.LOW]: { bg: '#dbeafe', text: '#1e40af' },    
-            [Priority.MEDIUM]: { bg: '#fef3c7', text: '#92400e' }, 
-            [Priority.HIGH]: { bg: '#fee2e2', text: '#991b1b' }, 
-        })}
-      />
-
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
@@ -887,9 +833,45 @@ const BoardPage: React.FC = () => {
         initialProject={currentProject}
       />
 
-      <AISettingsModal 
-        isOpen={isAISettingsOpen}
-        onClose={() => setIsAISettingsOpen(false)}
+      {/* Floating Multi-select Overlay (Image 1 style) */}
+      {isMultiSelectActive && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-8 duration-300">
+          <div className="bg-white/90 backdrop-blur-md rounded-lg shadow-2xl border border-gray-200/50 p-2 pl-4 flex items-center gap-6 ring-1 ring-black/5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-black text-sm shadow-lg shadow-blue-200 animate-in zoom-in duration-500">
+                {selectedTaskIds.length}
+              </div>
+              <span className="text-[10px] font-black text-blue-600 tracking-[0.15em]">SELECTED</span>
+            </div>
+            
+            <div className="h-8 w-px bg-gray-200/50"></div>
+            
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleClearSelection}
+                className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-blue-600 hover:bg-blue-50 bg-gray-50/50 border border-gray-100 rounded transition-all"
+              >
+                Deselect
+              </button>
+              <button 
+                onClick={handleDeleteSelectedTasks}
+                className="flex items-center gap-2 px-5 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-black transition-all shadow-lg shadow-red-100 hover:shadow-red-200 active:scale-95"
+              >
+                <Trash2 size={14} strokeWidth={2.5} />
+                Delete Selected
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Confirmation (Image 2 style) */}
+      <ConfirmModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        title="Bulk Delete Tasks"
+        message={`Are you sure you want to delete ${selectedTaskIds.length} selected tasks? This action cannot be undone.`}
       />
     </>
   );

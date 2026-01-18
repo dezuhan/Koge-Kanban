@@ -1,11 +1,27 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Loader2 } from 'lucide-react';
 import { Outlet } from 'react-router-dom';
 import ChatBot from './ChatBot';
+import WelcomeModal from './WelcomeModal';
+import SearchModal from './SearchModal';
 
 const Layout: React.FC = () => {
-  const { appLoading } = useApp();
+  const { appLoading, isSearchOpen, setIsSearchOpen } = useApp();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen(!isSearchOpen);
+      }
+      if (e.key === 'Escape') {
+        setIsSearchOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSearchOpen, setIsSearchOpen]);
 
   if (appLoading) {
       return (
@@ -24,6 +40,8 @@ const Layout: React.FC = () => {
             <Outlet />
         </div>
         <ChatBot />
+        <WelcomeModal />
+        <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
     </div>
   );
 };

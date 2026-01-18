@@ -18,7 +18,7 @@ Critical Metrics:
 
 Output Requirement:
 - Tone: Highly Professional, Objective, Detail-Oriented, Strategic.
-- Format: Strict Markdown.
+- Format: Strict Markdown. DO NOT wrap the entire response in a markdown code block (like \`\`\`markdown ... \`\`\`). Output the markdown elements directly.
 - START DIRECTLY with the content. Do NOT include phrases like "Okay, here's the analysis" or "Here is the report".
 
 Structure:

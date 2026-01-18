@@ -11,6 +11,9 @@ interface SortableTaskProps {
   onDuplicate: (task: Task) => void;
   onToggleCheck: (id: string) => void;
   prioritySettings: PrioritySettings;
+  selectedTaskIds?: string[];
+  onToggleTaskSelection?: (taskId: string) => void;
+  projectId?: string;
 }
 
 export const SortableTask: React.FC<SortableTaskProps> = (props) => {
