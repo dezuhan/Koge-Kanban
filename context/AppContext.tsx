@@ -43,6 +43,34 @@ const DEFAULT_PRIORITY_SETTINGS: PrioritySettings = {
   [Priority.HIGH]: { bg: '#fee2e2', text: '#991b1b' },   
 };
 
+// AI model allowlist: only Qwen regular >=1B and <=7B, exclude VL/embedding variants
+const isAllowedModel = (name: string) => {
+  const n = name.toLowerCase();
+  if (!n.includes('qwen')) return false;
+  if (n.includes('vl') || n.includes('vision') || n.includes('embed') || n.includes('embedding')) return false;
+  // extract size before 'b' e.g. 7b, 4b, 14b
+  const sizeMatch = n.match(/(\d+(?:\.\d+)?)\s*b/);
+  if (!sizeMatch) return false;
+  const size = parseFloat(sizeMatch[1]);
+  return size >= 1 && size <= 7;
+};
+
+const parseSize = (name: string) => {
+  const m = name.toLowerCase().match(/(\d+(?:\.\d+)?)\s*b/);
+  return m ? parseFloat(m[1]) : Infinity;
+};
+
+const getGroupName = (name: string) => {
+  const n = name.toLowerCase();
+  if (n.includes('qwen')) return 'Qwen';
+  if (n.includes('gemma')) return 'Gemma';
+  if (n.includes('llama')) return 'Llama';
+  if (n.includes('deepseek')) return 'DeepSeek';
+  if (n.includes('mistral') || n.includes('mixtral')) return 'Mistral';
+  if (n.includes('phi')) return 'Phi';
+  return 'Others';
+};
+
 const SEED_PROJECT: Project = {
     id: 'intro-project-welcome',
     name: 'Welcome',
@@ -215,7 +243,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           const data = await response.json();
           if (data && data.models && Array.isArray(data.models)) {
-              const modelNames = data.models.map((m: any) => m.name);
+              const modelNames = data.models
+                .map((m: any) => m.name)
+                .filter(isAllowedModel);
               
               setAiModels(prev => {
                 if (JSON.stringify(prev) === JSON.stringify(modelNames)) return prev;
@@ -287,6 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addAIModel = (model: string) => {
+      if (!isAllowedModel(model)) return;
       if (!aiModels.includes(model)) {
           setAiModels(prev => {
               const newModels = [...prev, model];
@@ -304,6 +335,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (activeModel === model) {
           setActiveModel(newModels.length > 0 ? newModels[0] : '');
       }
+  };
+
+  const parseSize = (name: string) => {
+      const m = name.toLowerCase().match(/(\d+(?:\.\d+)?)\s*b/);
+      return m ? parseFloat(m[1]) : Infinity;
   };
 
   const setActiveAIModel = async (model: string): Promise<boolean> => {
@@ -373,7 +409,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             
             // 2. If Ollama is active and has models
             if (availableModels.length > 0) {
-                const modelToUse = loadedActiveModel || availableModels[0];
+                const modelToUse = loadedActiveModel && isAllowedModel(loadedActiveModel)
+                  ? loadedActiveModel
+                  : availableModels.find(isAllowedModel) || availableModels[0];
                 
                 // 3. Verify if the saved model (or first available) is actually present
                 if (availableModels.includes(modelToUse)) {
@@ -382,6 +420,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     setIsAIEnabled(true); // Automatically turn on if Ollama is ready
                 }
             }
+
+            // Sort models by size ascending for UI
+            const grouped = availableModels.reduce((acc, model) => {
+              const group = getGroupName(model);
+              if (!acc[group]) acc[group] = [];
+              acc[group].push(model);
+              return acc;
+            }, {} as Record<string, string[]>);
+
+            Object.keys(grouped).forEach(group => {
+              grouped[group] = grouped[group].slice().sort((m1, m2) => parseSize(m1) - parseSize(m2));
+            });
+            // Flatten back to aiModels ordering by group (keep current grouping sort)
+            const sortedGroups = Object.keys(grouped).sort((a, b) => {
+              if (a === 'Qwen') return -1;
+              if (b === 'Qwen') return 1;
+              if (a === 'Others') return 1;
+              if (b === 'Others') return -1;
+              return a.localeCompare(b);
+            });
+            const sortedModels = sortedGroups.flatMap(g => grouped[g] || []);
+            setAiModels(sortedModels);
             
             console.log("[AppContext] Initial projects:", fetchedProjects);
             

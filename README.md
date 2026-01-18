@@ -25,11 +25,12 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 
 ## Security Note (New)
 
-The codebase has been updated with enhanced security:
-- **Rate Limiting**: API requests are limited to prevent abuse.
-- **Strict CORS**: Origins are restricted by default.
-- **SSRF Protection**: AI endpoints are locked to server configuration.
-- **Helmet Headers**: Enhanced HTTP security headers.
+Security controls are enabled; adjust to your deployment:
+- **Rate Limiting**: API requests are limited (100 req / 15 min).
+- **CORS**: Default allowlist from `ALLOWED_ORIGINS`; dev stays open.
+- **AI Endpoint Control**: Server uses `OLLAMA_HOST` by default. To allow client-provided tunnels (Hybrid Mode), set `ALLOW_CLIENT_OLLAMA_HOST=true` — only if you trust the client/tunnel.
+- **Helmet Headers**: HTTP security headers + CSP (connectSrc is loose for hybrid; tighten if not needed).
+- **DB Password Required**: `DB_PASSWORD` is required; the server will fail to start if empty.
 
 ## Private Hybrid Mode (Local Data Gateway)
 
@@ -57,6 +58,7 @@ DB_NAME=koge_kanban
 PORT=3000
 ALLOWED_ORIGINS=http://localhost:5173,https://koge-kanban.vercel.app
 OLLAMA_HOST=http://127.0.0.1:11434
+ALLOW_CLIENT_OLLAMA_HOST=false  # set true only if you need client-sent tunnels (hybrid)
 ```
 **Important:** Do not use `root` user for the database in production.
 
@@ -99,7 +101,7 @@ Since browsers block access from HTTPS (Vercel) to HTTP (Localhost), you need a 
     *   Paste your API Domain (e.g., `https://database-abcd.ngrok-free.app` or `http://localhost:3000`) into the **API Base Domain** field.
     *   Click **Save & Reload**.
 *   **AI Connection**: 
-    *   Ensure your server's `.env` has the correct `OLLAMA_HOST`. The frontend now communicates securely through your server.
+    *   Ensure your server's `.env` has the correct `OLLAMA_HOST`. If you need client-provided tunnels (Hybrid Mode), set `ALLOW_CLIENT_OLLAMA_HOST=true` on the server.
 *   Allow local network access when prompted.
 *   **Note**: Your data is saved locally to MariaDB via the backend tunnel.
 

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Priority, PrioritySettings } from '../types';
-import { RefreshCw, Globe, Cpu, CheckCircle2, Circle, Star, AlertTriangle, Plus, Trash2, ChevronLeft, Layout, Palette } from 'lucide-react';
+import { RefreshCw, Globe, Cpu, CheckCircle2, Circle, Star, AlertTriangle, Plus, Trash2, ChevronLeft, Layout } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
-type SettingsCategory = 'general' | 'ai' | 'appearance';
+type SettingsCategory = 'general' | 'appearance';
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -28,6 +28,11 @@ const SettingsPage: React.FC = () => {
   const [apiBaseDomain, setApiBaseDomain] = useState(() => {
     return localStorage.getItem('koge_api_base_url') || '';
   });
+  const [isGuestMode, setIsGuestMode] = useState(() => {
+    return localStorage.getItem('koge_guest_mode') === 'true';
+  });
+  const [dbPassword, setDbPassword] = useState('');
+  const [dbPasswordStatus, setDbPasswordStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
   const [newModelName, setNewModelName] = useState('');
 
@@ -59,6 +64,33 @@ const SettingsPage: React.FC = () => {
     return () => clearTimeout(timeout);
   };
 
+  // Helper to convert Hue to Hex (simplified for UI purposes)
+  const handleHueChange = (priority: Priority, type: 'bg' | 'text', hue: number) => {
+    // We convert HSL to Hex. Saturation 70%, Lightness 90% for bg, 40% for text
+    const s = 70;
+    const l = type === 'bg' ? 90 : 40;
+    
+    const h = hue / 360;
+    const q = l < 50 ? l * (1 + s / 100) : l + s - l * (s / 100);
+    const p = 2 * l - q;
+    
+    const f = (t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+    
+    const r = Math.round(f(h + 1/3) * 2.55);
+    const g = Math.round(f(h) * 2.55);
+    const b = Math.round(f(h - 1/3) * 2.55);
+    
+    const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    handleChangePriority(priority, type, hex);
+  };
+
   const handleSaveApiBase = () => {
     const normalizedDomain = apiBaseDomain.trim().replace(/\/+$/, '');
     const currentStored = localStorage.getItem('koge_api_base_url') || '';
@@ -73,6 +105,70 @@ const SettingsPage: React.FC = () => {
 
     // Reload if API base changed
     window.location.reload();
+  };
+
+  const handleExitGuestMode = () => {
+    globalConfirm({
+      title: 'Exit Guest Mode?',
+      message: 'This will switch back to database mode. Your local guest data will remain in your browser but won\'t be synced to the database.',
+      type: 'warning',
+      confirmText: 'Switch to Database',
+      onConfirm: () => {
+        localStorage.removeItem('koge_guest_mode');
+        window.location.reload();
+      }
+    });
+  };
+
+  const handleSaveDbPassword = () => {
+    const trimmed = dbPassword.trim();
+    if (!trimmed) {
+      setDbPasswordStatus('fail');
+      return;
+    }
+
+    setDbPasswordStatus('checking');
+    // Use configured API base (same as data endpoints) so it works in custom domains/tunnels
+    const storedApiBase = (localStorage.getItem('koge_api_base_url') || '').replace(/\/+$/, '');
+    const authUrl = storedApiBase ? `${storedApiBase}/auth/check-password` : '/api/auth/check-password';
+
+    fetch(authUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: trimmed })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data?.ok) {
+        // Store token in sessionStorage (prefer not to persist long-term)
+        if (data.token) {
+          sessionStorage.setItem('koge_db_token', data.token);
+          localStorage.setItem('koge_db_token', data.token); // fallback if session is lost; remove if you want shorter life
+        }
+        setDbPasswordStatus('ok');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 1200);
+      } else {
+        sessionStorage.removeItem('koge_db_token');
+        localStorage.removeItem('koge_db_token');
+        setDbPasswordStatus('fail');
+        globalAlert({
+          title: 'Password Mismatch',
+          message: 'Password tidak cocok dengan konfigurasi server. Harap masukkan password yang benar.',
+          type: 'danger'
+        });
+      }
+    })
+    .catch(() => {
+      setDbPasswordStatus('fail');
+      sessionStorage.removeItem('koge_db_token');
+      localStorage.removeItem('koge_db_token');
+      globalAlert({
+        title: 'Validation Failed',
+        message: 'Gagal memvalidasi password. Pastikan server berjalan dan coba lagi.',
+        type: 'danger'
+      });
+    });
   };
 
   const handleResetColors = () => {
@@ -147,12 +243,6 @@ const SettingsPage: React.FC = () => {
     return a.localeCompare(b);
   });
 
-  const categories = [
-    { id: 'general', label: 'General', icon: <Globe size={18} />, description: 'Connectivity & core setup' },
-    { id: 'ai', label: 'AI Engine', icon: <Cpu size={18} />, description: 'Ollama & model selection' },
-    { id: 'appearance', label: 'Appearance', icon: <Palette size={18} />, description: 'Themes & priority colors' },
-  ];
-
   return (
     <div className="settings-page w-full p-4 md:p-10 min-h-screen flex flex-col">
       {/* Header */}
@@ -176,7 +266,10 @@ const SettingsPage: React.FC = () => {
         {/* Sidebar Navigation */}
         <aside className="w-full md:w-64 flex-shrink-0">
           <nav className="space-y-1">
-            {categories.map((cat) => (
+            {[
+              { id: 'general', label: 'General', icon: <Globe size={18} />, description: 'Connectivity & AI setup' },
+              { id: 'appearance', label: 'Appearance', icon: <Layout size={18} />, description: 'Themes & priority colors' },
+            ].map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id as SettingsCategory)}
@@ -204,8 +297,8 @@ const SettingsPage: React.FC = () => {
         <main className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-6 border-b border-gray-100 bg-slate-50/50">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              {categories.find(c => c.id === activeCategory)?.icon}
-              {categories.find(c => c.id === activeCategory)?.label}
+              {activeCategory === 'general' ? <Globe size={18} /> : <Layout size={18} />}
+              {activeCategory === 'general' ? 'General' : 'Appearance'}
             </h2>
           </div>
 
@@ -217,8 +310,28 @@ const SettingsPage: React.FC = () => {
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Database Connectivity</h3>
                     <p className="text-xs text-gray-500">Manage where your data is stored and synced.</p>
                   </div>
+
+                  {isGuestMode && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-4 animate-in fade-in zoom-in duration-300">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                          <AlertTriangle size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-amber-900">Guest Mode Active</h4>
+                          <p className="text-[10px] text-amber-700">Data is being saved locally to your browser only.</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={handleExitGuestMode}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition-colors shadow-sm"
+                      >
+                        Switch to Database
+                      </button>
+                    </div>
+                  )}
                   
-                  <div className="p-6 bg-blue-50/50 rounded-xl border border-blue-100 space-y-4">
+                  <div className={`p-6 bg-blue-50/50 rounded-xl border border-blue-100 space-y-4 ${isGuestMode ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">API Base Domain</label>
                       <input 
@@ -235,13 +348,36 @@ const SettingsPage: React.FC = () => {
                         <span>* Default: http://localhost:5173/api. Use this if accessing your database via Ngrok/Tunnel from other devices. Changing this will reload the application.</span>
                       </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Database Password (for session token)</label>
+                      <input
+                        type="password"
+                        value={dbPassword}
+                        onChange={(e) => setDbPassword(e.target.value)}
+                        onBlur={handleSaveDbPassword}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveDbPassword()}
+                        placeholder="Enter DB password (validated server-side)"
+                        className="w-full text-sm px-4 py-2.5 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all bg-white"
+                        autoComplete="new-password"
+                      />
+                      <div className="flex items-start gap-2 text-[10px] text-blue-700 italic mt-2 bg-blue-100/50 p-2 rounded-md">
+                        <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                        <span>Password is not stored; the server issues a session token if it matches configuration. Token is kept temporarily in your browser.</span>
+                      </div>
+                      {dbPasswordStatus === 'checking' && (
+                        <div className="text-[10px] text-blue-600 font-semibold">Memeriksa password...</div>
+                      )}
+                      {dbPasswordStatus === 'ok' && (
+                        <div className="text-[10px] text-green-600 font-semibold">Password cocok.</div>
+                      )}
+                      {dbPasswordStatus === 'fail' && (
+                        <div className="text-[10px] text-red-600 font-semibold">Password salah atau belum diisi.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </section>
-            )}
 
-            {activeCategory === 'ai' && (
-              <section className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                 <div className="space-y-4">
                   <div className="flex flex-col gap-1">
                     <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">AI Engine (Ollama)</h3>
@@ -283,7 +419,7 @@ const SettingsPage: React.FC = () => {
                         <div>
                           <h4 className="text-xs font-bold text-blue-800 mb-1">System Recommendation</h4>
                           <p className="text-[11px] text-blue-700 leading-relaxed">
-                            For best performance and reasoning, we recommend using <strong>Qwen 3</strong> (or Qwen 2.5) models.
+                            For best performance and reasoning, we recommend using <strong>Qwen 3</strong> (or Qwen 2.5) models under <strong>7B</strong> for speed and instruction accuracy. Non-regular (VL/embedding) models are excluded.
                           </p>
                         </div>
                       </div>
@@ -382,9 +518,12 @@ const SettingsPage: React.FC = () => {
               <section className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex flex-col gap-1">
-                      <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Priority Colors</h3>
-                      <p className="text-xs text-gray-500">Customize how different task priorities look on your board.</p>
+                    <div className="flex items-center gap-2">
+                      <Layout size={18} className="text-gray-600" />
+                      <div className="flex flex-col gap-1">
+                        <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Priority Colors</h3>
+                        <p className="text-xs text-gray-500">Customize how different task priorities look on your board.</p>
+                      </div>
                     </div>
                     <button
                       onClick={handleResetColors}
@@ -410,29 +549,58 @@ const SettingsPage: React.FC = () => {
                           </div>
                         </div>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="space-y-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                          <div className="space-y-4">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Background Color</label>
-                            <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-gray-100">
-                              <input 
-                                  type="color" 
-                                  value={prioritySettings[priority].bg}
-                                  onChange={(e) => handleChangePriority(priority, 'bg', e.target.value)}
-                                  className="w-10 h-10 rounded-lg cursor-pointer border-2 border-white shadow-sm p-0 overflow-hidden"
-                              />
-                              <span className="text-xs font-mono font-bold text-gray-600 uppercase">{prioritySettings[priority].bg}</span>
+                            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-gray-100">
+                              <div className="flex items-center gap-4">
+                                <input 
+                                    type="color" 
+                                    value={prioritySettings[priority].bg}
+                                    onChange={(e) => handleChangePriority(priority, 'bg', e.target.value)}
+                                    className="cursor-pointer"
+                                />
+                                <div className="flex-1">
+                                  <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="360" 
+                                    className="color-hue-slider"
+                                    onChange={(e) => handleHueChange(priority, 'bg', parseInt(e.target.value))}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center px-1">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tone Selection</span>
+                                <span className="text-xs font-mono font-bold text-blue-600 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-50 uppercase">{prioritySettings[priority].bg}</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="space-y-2">
+                          
+                          <div className="space-y-4">
                             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Text Color</label>
-                            <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-gray-100">
-                              <input 
-                                  type="color" 
-                                  value={prioritySettings[priority].text}
-                                  onChange={(e) => handleChangePriority(priority, 'text', e.target.value)}
-                                  className="w-10 h-10 rounded-lg cursor-pointer border-2 border-white shadow-sm p-0 overflow-hidden"
-                              />
-                              <span className="text-xs font-mono font-bold text-gray-600 uppercase">{prioritySettings[priority].text}</span>
+                            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-gray-100">
+                              <div className="flex items-center gap-4">
+                                <input 
+                                    type="color" 
+                                    value={prioritySettings[priority].text}
+                                    onChange={(e) => handleChangePriority(priority, 'text', e.target.value)}
+                                    className="cursor-pointer"
+                                />
+                                <div className="flex-1">
+                                  <input 
+                                    type="range" 
+                                    min="0" 
+                                    max="360" 
+                                    className="color-hue-slider"
+                                    onChange={(e) => handleHueChange(priority, 'text', parseInt(e.target.value))}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex justify-between items-center px-1">
+                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tone Selection</span>
+                                <span className="text-xs font-mono font-bold text-blue-600 bg-white px-2 py-1 rounded-lg shadow-sm border border-blue-50 uppercase">{prioritySettings[priority].text}</span>
+                              </div>
                             </div>
                           </div>
                         </div>

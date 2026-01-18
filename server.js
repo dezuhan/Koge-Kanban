@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
 import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,7 +21,8 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // React scripts might need unsafe-inline/eval in dev
       imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", "*"], // Allow connections to any endpoint for Hybrid mode (needed for client-side API base override)
+      // Restrict connectSrc to self + explicit Ollama host; remove wildcard
+      connectSrc: ["'self'", process.env.OLLAMA_HOST || "http://127.0.0.1:11434"],
     },
   },
 }));
@@ -31,23 +33,21 @@ const limiter = rateLimit({
   max: 100, // Limit each IP to 100 requests per windowMs
   message: 'Too many requests from this IP, please try again later.'
 });
+const limiterAi = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many AI requests, please slow down.'
+});
 app.use('/api/', limiter);
 
 // CORS Configuration
 const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'https://koge-kanban.vercel.app'];
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    // Check allowed origins
     if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
-    
-    // In Hybrid Mode, user might connect from a dynamic Ngrok URL or local IP that isn't in allowlist.
-    // For a "Self Hosted" tool intended for personal use, strict CORS might block legitimate use cases.
-    // We log the blocked attempt for debugging.
     console.warn(`[CORS] Blocked request from origin: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
@@ -60,11 +60,52 @@ app.use(express.json({ limit: '10mb' })); // Limit payload size
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Database Configuration
+const DB_PASSWORD = process.env.DB_PASSWORD;
+const APP_SECRET = process.env.APP_SECRET;
+
+// Enforce critical env
+if (!DB_PASSWORD) {
+  console.error('[SECURITY] DB_PASSWORD is required. Set it in your .env and restart the server.');
+  process.exit(1);
+}
+if (!APP_SECRET) {
+  console.error('[SECURITY] APP_SECRET is required. Set it in your .env and restart the server.');
+  process.exit(1);
+}
+
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost', 
   user: process.env.DB_USER || 'root', 
-  password: process.env.DB_PASSWORD || '',
+  password: DB_PASSWORD,
   connectionLimit: 5
+};
+
+// --- Auth helpers (simple signed token) ---
+const signToken = (payload) => {
+  const data = JSON.stringify(payload);
+  const b64 = Buffer.from(data).toString('base64url');
+  const sig = crypto.createHmac('sha256', APP_SECRET).update(b64).digest('base64url');
+  return `${b64}.${sig}`;
+};
+
+const verifyToken = (token) => {
+  if (!token || !token.includes('.')) return null;
+  const [b64, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', APP_SECRET).update(b64).digest('base64url');
+  if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) return null;
+  const payload = JSON.parse(Buffer.from(b64, 'base64url').toString());
+  if (payload.exp && Date.now() > payload.exp) return null;
+  return payload;
+};
+
+const requireAuth = (req, res, next) => {
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
 };
 
 const DB_NAME = process.env.DB_NAME || 'koge_kanban';
@@ -127,12 +168,23 @@ async function initializeDatabase() {
 // Initialize DB on startup
 initializeDatabase();
 
+// Auth endpoints
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: 'Password required' });
+  if (password !== DB_PASSWORD) return res.status(401).json({ error: 'Invalid password' });
+  
+  const exp = Date.now() + 12 * 60 * 60 * 1000; // 12h
+  const token = signToken({ exp });
+  res.json({ token, expiresAt: exp });
+});
+
 // New Endpoint: Get all tasks from all projects
 /**
  * GET /api/tasks/global
  * Retrieves all tasks from all projects stored in the database.
  */
-app.get('/api/tasks/global', async (req, res) => {
+app.get('/api/tasks/global', requireAuth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
   
   let conn;
@@ -172,7 +224,7 @@ app.get('/api/tasks/global', async (req, res) => {
 });
 
 // Generic GET endpoint
-app.get('/api/data/:key', async (req, res) => {
+app.get('/api/data/:key', requireAuth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
   
   // Basic validation for key
@@ -199,7 +251,7 @@ app.get('/api/data/:key', async (req, res) => {
 });
 
 // Generic POST endpoint
-app.post('/api/data/:key', async (req, res) => {
+app.post('/api/data/:key', requireAuth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
 
   // Basic validation for key
@@ -227,7 +279,7 @@ app.post('/api/data/:key', async (req, res) => {
 });
 
 // Generic DELETE endpoint
-app.delete('/api/data/:key', async (req, res) => {
+app.delete('/api/data/:key', requireAuth, async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
 
   // Prevent dangerous wildcard deletes without auth (for now just restrict wildcard length or disable it if unauthed, but since no auth yet, we keep it but log warning)
@@ -259,6 +311,16 @@ app.delete('/api/data/:key', async (req, res) => {
   } finally {
     if (conn) conn.release();
   }
+});
+
+// --- Auth: DB Password Verification (for client password prompt) ---
+app.post('/api/auth/check-password', (req, res) => {
+  const { password } = req.body || {};
+  if (!password) {
+    return res.status(400).json({ ok: false, error: 'Password required' });
+  }
+  const isMatch = password === DB_PASSWORD;
+  return res.json({ ok: isMatch });
 });
 
 // --- AI Integration (Ollama) ---
@@ -298,7 +360,7 @@ const getOllamaHost = (req) => {
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
  */
-app.get('/api/ai/models', async (req, res) => {
+app.get('/api/ai/models', limiterAi, async (req, res) => {
     const ollamaHost = getOllamaHost(req);
     try {
         const controller = new AbortController();
@@ -323,7 +385,7 @@ app.get('/api/ai/models', async (req, res) => {
  * POST /api/ai/generate
  * Proxies request to local Ollama instance
  */
-app.post('/api/ai/generate', async (req, res) => {
+app.post('/api/ai/generate', limiterAi, async (req, res) => {
     const { prompt, model, options } = req.body;
     const ollamaHost = getOllamaHost(req);
     const targetModel = model || "gemma3:4b";
@@ -366,7 +428,7 @@ app.post('/api/ai/generate', async (req, res) => {
  * POST /api/ai/chat
  * Proxies chat request to local Ollama instance
  */
-app.post('/api/ai/chat', async (req, res) => {
+app.post('/api/ai/chat', limiterAi, async (req, res) => {
     const { messages, model, options } = req.body;
     const ollamaHost = getOllamaHost(req);
     const targetModel = model || "gemma3:4b";

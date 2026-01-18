@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Database, CheckCircle2, AlertCircle, Globe, Zap, ArrowRight, Loader2 } from 'lucide-react';
+import { X, Database, CheckCircle2, AlertCircle, Globe, Zap, ArrowRight, Loader2, User } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 /**
@@ -44,11 +44,24 @@ const WelcomeModal: React.FC = () => {
         if (!dbUrl.trim()) return;
         setChecking(true);
         
+        // Disable guest mode if it was enabled
+        localStorage.removeItem('koge_guest_mode');
+        
         // Save to localStorage and reload to apply changes in db.ts
         localStorage.setItem('koge_api_base_url', dbUrl.trim());
         localStorage.setItem('koge_welcome_seen', 'true');
         
         // Give a small delay for visual feedback
+        setTimeout(() => {
+            window.location.reload();
+        }, 800);
+    };
+
+    const handleGuestLogin = () => {
+        setChecking(true);
+        localStorage.setItem('koge_guest_mode', 'true');
+        localStorage.setItem('koge_welcome_seen', 'true');
+        
         setTimeout(() => {
             window.location.reload();
         }, 800);
@@ -138,6 +151,21 @@ const WelcomeModal: React.FC = () => {
                                 >
                                     {checking ? <Loader2 size={20} className="animate-spin" /> : <Database size={20} />}
                                     {checking ? 'Connecting...' : 'Save & Connect'}
+                                </button>
+
+                                <div className="flex items-center gap-4 py-2">
+                                    <div className="h-px bg-gray-200 flex-1"></div>
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Or</span>
+                                    <div className="h-px bg-gray-200 flex-1"></div>
+                                </div>
+
+                                <button 
+                                    onClick={handleGuestLogin}
+                                    disabled={checking}
+                                    className="w-full bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50 font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                                >
+                                    <User size={20} />
+                                    Login as Guest (Local Only)
                                 </button>
                                 
                                 {isDbConnected && (

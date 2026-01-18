@@ -641,7 +641,7 @@ const BoardPage: React.FC = () => {
                         await toggleAI();
                         setIsTogglingAI(false);
                     }}
-                    className={`flex items-center gap-1.5 px-3 md:px-4 h-10 rounded-lg transition-all font-bold text-xs shrink-0 ${
+                    className={`flex items-center gap-1.5 px-3 md:px-4 h-12 rounded-xl transition-all font-bold text-xs shrink-0 shadow-sm ${
                         isAIEnabled 
                             ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' 
                             : 'bg-white text-gray-400 border border-gray-200 hover:border-gray-300'
@@ -655,7 +655,7 @@ const BoardPage: React.FC = () => {
 
                 <button 
                     onClick={() => setIsSearchOpen(true)}
-                    className="lg:hidden w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-lg transition-all shrink-0"
+                    className="lg:hidden w-12 h-12 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-xl transition-all shrink-0 shadow-sm"
                     title="Smart Search (Ctrl+K)"
                 >
                     <Search size={18} />
@@ -663,7 +663,7 @@ const BoardPage: React.FC = () => {
 
                 <button 
                     onClick={() => navigate('/settings')}
-                    className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-lg transition-all shrink-0"
+                    className="w-12 h-12 flex items-center justify-center text-gray-500 hover:text-blue-600 bg-white border border-gray-200 hover:border-blue-100 hover:bg-blue-50/30 rounded-xl transition-all shrink-0 shadow-sm"
                     title="Settings"
                 >
                     <Settings size={18} />
@@ -671,7 +671,7 @@ const BoardPage: React.FC = () => {
 
                 <button 
                     onClick={() => isAIEnabled && setIsChatOpen(!isChatOpen)}
-                    className={`w-10 h-10 flex items-center justify-center rounded-lg transition-all border shrink-0 ${
+                    className={`w-12 h-12 flex items-center justify-center rounded-xl transition-all border shrink-0 shadow-sm ${
                         !isAIEnabled
                             ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed opacity-50'
                             : isChatOpen 
@@ -686,7 +686,7 @@ const BoardPage: React.FC = () => {
                 <button 
                     onClick={openSummary}
                     disabled={!isAIEnabled}
-                    className={`btn-summary flex items-center justify-center px-3 md:px-4 h-10 rounded-lg transition border shrink-0 ${
+                    className={`btn-summary flex items-center justify-center px-3 md:px-4 h-12 rounded-xl transition border shrink-0 shadow-sm ${
                         isAIEnabled 
                             ? 'bg-white text-blue-700 hover:bg-blue-50 border-blue-200 shadow-sm' 
                             : 'bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed opacity-60'
