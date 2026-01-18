@@ -260,7 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Check if Ollama is running before enabling
           try {
               const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 2000);
+              const timeoutId = setTimeout(() => controller.abort(), 30000);
               
             const response = await fetch('/api/ai/generate', {
                   method: 'POST',
@@ -317,7 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAILoading(true);
       try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
           
           const response = await fetch('/api/ai/generate', {
               method: 'POST',
