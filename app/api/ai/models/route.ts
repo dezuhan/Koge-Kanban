@@ -3,20 +3,20 @@ import { NextResponse } from 'next/server';
 /**
  * GET /api/ai/models
  * Proxies request to Ollama to get list of installed models.
- * Handles custom endpoints (e.g. Ngrok) provided via headers for Vercel deployment.
  */
 export async function GET(request: Request) {
-  // 1. Get the custom endpoint from headers
-  const ollamaEndpoint = request.headers.get('x-ollama-endpoint') || 'http://localhost:11434';
+  // SECURITY FIX: Use environment variable for Ollama host
+  const ollamaEndpoint = process.env.OLLAMA_HOST || 'http://localhost:11434';
+  const cleanEndpoint = ollamaEndpoint.endsWith('/') ? ollamaEndpoint.slice(0, -1) : ollamaEndpoint;
   
-  console.log(`[Vercel API] Proxying models request to: ${ollamaEndpoint}/api/tags`);
+  console.log(`[Vercel API] Proxying models request to: ${cleanEndpoint}/api/tags`);
 
   try {
     // 2. Fetch from Ollama with a timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s for external tunnels
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-    const response = await fetch(`${ollamaEndpoint}/api/tags`, {
+    const response = await fetch(`${cleanEndpoint}/api/tags`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -47,10 +47,8 @@ export async function GET(request: Request) {
       { 
         error: 'Ollama service unreachable', 
         details: error.message,
-        hint: 'Ensure your Ngrok/tunnel is running and the URL is correct.'
       },
       { status: 503 }
     );
   }
 }
-

@@ -4,7 +4,11 @@ export default async function handler(req, res) {
   }
 
   const { messages, model, options } = req.body;
-  const ollamaHost = req.headers['x-ollama-endpoint'] || 'http://127.0.0.1:11434';
+  // SECURITY FIX: Use environment variable for Ollama host
+  const ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+  // Ensure host doesn't have trailing slash
+  const cleanHost = ollamaHost.endsWith('/') ? ollamaHost.slice(0, -1) : ollamaHost;
+
   const targetModel = model || "gemma3:4b";
   
   try {
@@ -18,7 +22,7 @@ export default async function handler(req, res) {
       requestBody.options = options;
     }
 
-    const ollamaRes = await fetch(`${ollamaHost}/api/chat`, {
+    const ollamaRes = await fetch(`${cleanHost}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
@@ -40,4 +44,3 @@ export default async function handler(req, res) {
     res.status(500).json({ error: `Gagal menghubungi Ollama: ${error.message}` });
   }
 }
-

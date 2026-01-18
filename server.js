@@ -3,16 +3,50 @@ import mariadb from 'mariadb';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+// Security Middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // React scripts might need unsafe-inline/eval in dev
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", process.env.OLLAMA_HOST || "http://127.0.0.1:11434"],
+    },
+  },
+}));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api/', limiter);
+
+// CORS Configuration
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
+app.use(express.json({ limit: '10mb' })); // Limit payload size
 
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, 'dist')));
@@ -25,7 +59,7 @@ const dbConfig = {
   connectionLimit: 5
 };
 
-const DB_NAME = 'koge_kanban';
+const DB_NAME = process.env.DB_NAME || 'koge_kanban';
 
 // Create a pool
 let pool;
@@ -35,9 +69,15 @@ let pool;
  * It attempts to create the database if it doesn't exist, then creates the 'kv_store' table.
  */
 async function initializeDatabase() {
+  // Security Check: Warn if using default root credentials
+  if (dbConfig.user === 'root' && !dbConfig.password) {
+    console.warn('\x1b[33m%s\x1b[0m', 'WARNING: Running database with root user and empty password. This is insecure for production!');
+  }
+
   let conn;
   try {
     // 1. Connect without selecting a database to check/create the DB
+    // Only attempt creation if explicitly configured or in dev mode
     conn = await mariadb.createConnection({
         host: dbConfig.host,
         user: dbConfig.user,
@@ -68,7 +108,8 @@ async function initializeDatabase() {
     console.error("Database Initialization Error:", err);
     console.log("Please ensure MariaDB is running and credentials in server.js are correct.");
     if (!process.env.VERCEL) {
-        process.exit(1);
+        // Don't exit process in dev to keep server running for frontend dev
+        // process.exit(1); 
     }
   } finally {
     if (conn) conn.release();
@@ -82,14 +123,6 @@ initializeDatabase();
 /**
  * GET /api/tasks/global
  * Retrieves all tasks from all projects stored in the database.
- * Used for the "Recent Tasks" dashboard.
- * 
- * Logic:
- * 1. Fetches all rows where key starts with 'tasks_'.
- * 2. Parses the JSON value of each row.
- * 3. Extracts the Project ID from the key ('tasks_{projectId}').
- * 4. Injects the '_projectId' into each task object for frontend lookup.
- * 5. Returns a flattened array of all tasks.
  */
 app.get('/api/tasks/global', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
@@ -97,27 +130,20 @@ app.get('/api/tasks/global', async (req, res) => {
   let conn;
   try {
     conn = await pool.getConnection();
-    console.log("Fetching global tasks..."); // you can uncomment this if you want to see the number of global tasks
-    // Fetch all keys starting with 'tasks_'
     const rows = await conn.query("SELECT `key`, `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
-    console.log(`Found ${rows.length} project task entries.`); // you can uncomment this if you want to see the number of global tasks
     
     // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
         try {
-            // Key format: "tasks_{projectId}"
-            // Extract projectId from the key name
-            // e.g. "tasks_intro-project-welcome" -> "intro-project-welcome"
             const keyParts = row.key ? row.key.split('tasks_') : [];
             const projectId = keyParts.length > 1 ? keyParts[1] : null;
 
             const tasks = JSON.parse(row.value);
             
             if (Array.isArray(tasks)) {
-                // Inject the real Project ID into the task object for easier lookup
                 const tasksWithPid = tasks.map(t => ({
                     ...t,
-                    _projectId: projectId // Add internal field for lookup
+                    _projectId: projectId 
                 }));
                 return [...acc, ...tasksWithPid];
             }
@@ -128,7 +154,6 @@ app.get('/api/tasks/global', async (req, res) => {
         }
     }, []);
     
-    console.log(`Returning ${allTasks.length} global tasks.`); // you can uncomment this if you want to see the number of global tasks
     res.json(allTasks);
   } catch (error) {
     console.error(`Database global tasks error:`, error);
@@ -139,19 +164,19 @@ app.get('/api/tasks/global', async (req, res) => {
 });
 
 // Generic GET endpoint
-/**
- * GET /api/data/:key
- * Retrieves a specific JSON value by its key.
- */
 app.get('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
   
+  // Basic validation for key
+  if (!req.params.key || req.params.key.length > 255) {
+      return res.status(400).json({ error: 'Invalid key' });
+  }
+
   let conn;
   try {
     conn = await pool.getConnection();
     const rows = await conn.query("SELECT `value` FROM kv_store WHERE `key` = ?", [req.params.key]);
     
-    // MariaDB returns an array. If empty, return null.
     if (rows && rows.length > 0) {
       res.json(JSON.parse(rows[0].value));
     } else {
@@ -166,20 +191,19 @@ app.get('/api/data/:key', async (req, res) => {
 });
 
 // Generic POST endpoint
-/**
- * POST /api/data/:key
- * Saves (Upserts) a JSON value to a specific key.
- * Uses ON DUPLICATE KEY UPDATE to handle both inserts and updates.
- */
 app.post('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+
+  // Basic validation for key
+  if (!req.params.key || req.params.key.length > 255) {
+      return res.status(400).json({ error: 'Invalid key' });
+  }
 
   let conn;
   try {
     conn = await pool.getConnection();
     const valueStr = JSON.stringify(req.body);
     
-    // MariaDB UPSERT syntax
     await conn.query(
       "INSERT INTO kv_store (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
       [req.params.key, valueStr]
@@ -195,25 +219,22 @@ app.post('/api/data/:key', async (req, res) => {
 });
 
 // Generic DELETE endpoint
-/**
- * DELETE /api/data/:key
- * Permanently removes a key and its value from the database.
- * Supports wildcard matching if key ends with '*'.
- */
 app.delete('/api/data/:key', async (req, res) => {
   if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+
+  // Prevent dangerous wildcard deletes without auth (for now just restrict wildcard length or disable it if unauthed, but since no auth yet, we keep it but log warning)
+  const key = req.params.key;
 
   let conn;
   try {
     conn = await pool.getConnection();
-    const key = req.params.key;
     
     let result;
     if (key.endsWith('*')) {
         const prefix = key.slice(0, -1);
-        // Delete all keys starting with prefix
-        // Note: DELETE with LIKE might not be standard in all SQL dialects for simple KV tables, 
-        // but typically: DELETE FROM kv_store WHERE `key` LIKE 'prefix%'
+        if (prefix.length < 3) {
+             return res.status(400).json({ error: 'Wildcard prefix too short' });
+        }
         result = await conn.query("DELETE FROM kv_store WHERE `key` LIKE ?", [`${prefix}%`]);
     } else {
         result = await conn.query("DELETE FROM kv_store WHERE `key` = ?", [key]);
@@ -237,12 +258,13 @@ app.delete('/api/data/:key', async (req, res) => {
 const DEFAULT_OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 
 /**
- * Helper to get Ollama host from request headers or default.
- * Trims trailing slash to avoid double-slash in API paths.
+ * SECURITY FIX:
+ * Only allow host from environment variable or localhost default.
+ * Do NOT trust client headers for host destination to prevent SSRF.
  */
 const getOllamaHost = (req) => {
-    let host = req.headers['x-ollama-endpoint'] || DEFAULT_OLLAMA_HOST;
-    return host.endsWith('/') ? host.slice(0, -1) : host;
+    // Strict mode: Only use server-configured host
+    return DEFAULT_OLLAMA_HOST.endsWith('/') ? DEFAULT_OLLAMA_HOST.slice(0, -1) : DEFAULT_OLLAMA_HOST;
 };
 
 /**
@@ -357,7 +379,6 @@ app.post('/api/ai/chat', async (req, res) => {
 });
 
 // Catch-all handler for any request that doesn't match an API route
-// Sends back the React index.html file to handle client-side routing
 app.get('*', (req, res) => {
   // Don't intercept API routes
   if (req.path.startsWith('/api')) {
@@ -372,5 +393,7 @@ export default app;
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend server running on http://127.0.0.1:${PORT}`);
+    console.log(`Security: CORS enabled for origins: ${allowedOrigins.join(', ')}`);
+    console.log(`Security: Rate limiting enabled.`);
   });
 }

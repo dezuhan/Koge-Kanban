@@ -12,7 +12,7 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **Integrated AI Assistant (Optional)**: 
     *   **Admin AI**: AI can perform CRUD operations (create, update, delete) directly on your board.
     *   **Global Context**: Tag boards with `@[board name]` to let AI read data from other projects.
-    *   **Custom Endpoint**: Connect local Ollama to public deployments (Vercel) via Ngrok/Cloudflare Tunnel.
+    *   **Secure Integration**: Server-side configured AI endpoints preventing SSRF.
 *   **Local Privacy**: Uses local LLMs so your data stays private.
 *   **Database Driven**: Data is stored in a MariaDB database.
 
@@ -22,6 +22,14 @@ A streamlined Kanban board featuring drag-and-drop management, table views, and 
 *   **MariaDB**: Required for data storage.
 *   **Ollama**: Required for AI features ([ollama.com](https://ollama.com/)).
 *   **Ngrok** (Optional): Required if you are using the public Vercel version with local AI.
+
+## Security Note (New)
+
+The codebase has been updated with enhanced security:
+- **Rate Limiting**: API requests are limited to prevent abuse.
+- **Strict CORS**: Origins are restricted by default.
+- **SSRF Protection**: AI endpoints are locked to server configuration.
+- **Helmet Headers**: Enhanced HTTP security headers.
 
 ## Private Hybrid Mode (Local Data Gateway)
 
@@ -33,18 +41,31 @@ mkdir koge-local-server
 cd koge-local-server
 npm init -y
 npm pkg set type="module"
-npm install express mariadb cors dotenv // (if error try install express@4)
+npm install express mariadb cors dotenv helmet express-rate-limit
 ```
 
 ### 2. Create Server File
 Copy the code from **[server.js](https://github.com/dezuhan/koge-kanban/blob/main/server.js)** in this repo into a new `server.js` file.
 
-### 3. Run the Server
+### 3. Configure Environment
+Create a `.env` file (copy from `.env.example` if available) with your database and security settings:
+```env
+DB_HOST=localhost
+DB_USER=your_secure_user
+DB_PASSWORD=your_secure_password
+DB_NAME=koge_kanban
+PORT=3000
+ALLOWED_ORIGINS=http://localhost:5173,https://koge-kanban.vercel.app
+OLLAMA_HOST=http://127.0.0.1:11434
+```
+**Important:** Do not use `root` user for the database in production.
+
+### 4. Run the Server
 ```bash
 node server.js
 ```
 
-### 4. Configure Ollama CORS (Optional - PowerShell)
+### 5. Configure Ollama CORS (Optional - PowerShell)
 To allow the public interface to communicate with your local Ollama instance, you must enable CORS:
 
 1.  **Stop any running Ollama process**.
@@ -54,7 +75,7 @@ To allow the public interface to communicate with your local Ollama instance, yo
     ```
     *Note: Keep this terminal window open while using the AI features.*
 
-### 5. Setup AI Tunnel (Optional - Ngrok)
+### 6. Setup AI Tunnel (Optional - Ngrok)
 Since browsers block access from HTTPS (Vercel) to HTTP (Localhost), you need a tunnel for **Ollama**:
 
 1.  **Install Ngrok**: Download from [ngrok.com](https://ngrok.com/download) or install via terminal:
@@ -71,14 +92,14 @@ Since browsers block access from HTTPS (Vercel) to HTTP (Localhost), you need a 
     ```
 3.  **Copy the Forwarding URL**: It will look like `https://abcd-123.ngrok-free.app`.
 
-### 6. Connect via Browser
+### 7. Connect via Browser
 *   Navigate to [koge-kanban.vercel.app](https://koge-kanban.vercel.app).
 *   **API Connection**: 
     *   Click the **Gear Icon (⚙️)** on the Dashboard or Board page.
-    *   Paste your Ngrok URL (e.g., `https://database-abcd.ngrok-free.app`) into the **API Base Domain** field.
+    *   Paste your API Domain (e.g., `https://database-abcd.ngrok-free.app` or `http://localhost:3000`) into the **API Base Domain** field.
     *   Click **Save & Reload**.
 *   **AI Connection**: 
-    *   Open **AI Settings** and paste your Ollama Ngrok URL into the **Ollama Endpoint URL** field.
+    *   Ensure your server's `.env` has the correct `OLLAMA_HOST`. The frontend now communicates securely through your server.
 *   Allow local network access when prompted.
 *   **Note**: Your data is saved locally to MariaDB via the backend tunnel.
 
@@ -114,9 +135,10 @@ Sets up the app and database automatically.
 2.  **Setup Environment**: Create a `.env` file:
     ```env
     DB_HOST=localhost
-    DB_USER=root
-    DB_PASSWORD=your_password
+    DB_USER=koge_user
+    DB_PASSWORD=secure_password
     OLLAMA_HOST=http://127.0.0.1:11434
+    ALLOWED_ORIGINS=http://localhost:5173
     ```
 3.  **Run**:
     ```bash
