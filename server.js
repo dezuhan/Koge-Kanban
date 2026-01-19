@@ -1,5 +1,5 @@
 import express from 'express';
-import mariadb from 'mariadb';
+import Database from 'better-sqlite3';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -45,67 +45,32 @@ app.use(express.json({ limit: '10mb' })); // Limit payload size
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Database Configuration
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  connectionLimit: 5
-};
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'kanban.db');
 
-const DB_NAME = process.env.DB_NAME || 'koge_kanban';
-
-// Create a pool
-let pool;
+// Initialize the database
+let db;
 
 /**
- * Initializes the MariaDB database connection and ensures the required table exists.
- * It attempts to create the database if it doesn't exist, then creates the 'kv_store' table.
+ * Initializes the SQLite database and ensures the required table exists.
  */
-async function initializeDatabase() {
-  // Security Check: Warn if using default root credentials
-  if (dbConfig.user === 'root' && !dbConfig.password) {
-    console.warn('\x1b[33m%s\x1b[0m', 'WARNING: Running database with root user and empty password. This is insecure for production!');
-  }
-
-  let conn;
+function initializeDatabase() {
   try {
-    // 1. Connect without selecting a database to check/create the DB
-    // Only attempt creation if explicitly configured or in dev mode
-    conn = await mariadb.createConnection({
-      host: dbConfig.host,
-      user: dbConfig.user,
-      password: dbConfig.password
-    });
+    db = new Database(DB_PATH);
 
-    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
-    // console.log(`Database '${DB_NAME}' checked/created.`); // Removed for cleaner logs
-    await conn.end();
+    // Enable WAL mode for better concurrency
+    db.pragma('journal_mode = WAL');
 
-    // 2. Initialize the pool with the specific database
-    pool = mariadb.createPool({
-      ...dbConfig,
-      database: DB_NAME
-    });
-
-    // 3. Create Table
-    conn = await pool.getConnection();
-    await conn.query(`
+    db.prepare(`
       CREATE TABLE IF NOT EXISTS kv_store (
-        \`key\` VARCHAR(255) PRIMARY KEY,
-        \`value\` LONGTEXT
-      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-    `);
-    console.log("Table 'kv_store' checked/created.");
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `).run();
 
+    console.log(`SQLite database checked/created at: ${DB_PATH}`);
   } catch (err) {
     console.error("Database Initialization Error:", err);
-    console.log("Please ensure MariaDB is running and credentials in server.js are correct.");
-    if (!process.env.VERCEL) {
-      // Don't exit process in dev to keep server running for frontend dev
-      // process.exit(1); 
-    }
-  } finally {
-    if (conn) conn.release();
+    console.log("Please ensure the directory is writable.");
   }
 }
 
@@ -113,17 +78,11 @@ async function initializeDatabase() {
 initializeDatabase();
 
 // New Endpoint: Get all tasks from all projects
-/**
- * GET /api/tasks/global
- * Retrieves all tasks from all projects stored in the database.
- */
-app.get('/api/tasks/global', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+app.get('/api/tasks/global', (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
-  let conn;
   try {
-    conn = await pool.getConnection();
-    const rows = await conn.query("SELECT `key`, `value` FROM kv_store WHERE `key` LIKE 'tasks_%'");
+    const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE 'tasks_%'").all();
 
     // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
@@ -151,98 +110,79 @@ app.get('/api/tasks/global', async (req, res) => {
   } catch (error) {
     console.error(`Database global tasks error:`, error);
     res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    if (conn) conn.release();
   }
 });
 
 // Generic GET endpoint
-app.get('/api/data/:key', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+app.get('/api/data/:key', (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
-  // Basic validation for key
   if (!req.params.key || req.params.key.length > 255) {
     return res.status(400).json({ error: 'Invalid key' });
   }
 
-  let conn;
   try {
-    conn = await pool.getConnection();
-    const rows = await conn.query("SELECT `value` FROM kv_store WHERE `key` = ?", [req.params.key]);
+    const row = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(req.params.key);
 
-    if (rows && rows.length > 0) {
-      res.json(JSON.parse(rows[0].value));
+    if (row) {
+      res.json(JSON.parse(row.value));
     } else {
       res.json(null);
     }
   } catch (error) {
     console.error(`Database read error for key ${req.params.key}:`, error);
     res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    if (conn) conn.release();
   }
 });
 
 // Generic POST endpoint
-app.post('/api/data/:key', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+app.post('/api/data/:key', (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
-  // Basic validation for key
   if (!req.params.key || req.params.key.length > 255) {
     return res.status(400).json({ error: 'Invalid key' });
   }
 
-  let conn;
   try {
-    conn = await pool.getConnection();
     const valueStr = JSON.stringify(req.body);
 
-    await conn.query(
-      "INSERT INTO kv_store (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
-      [req.params.key, valueStr]
-    );
+    db.prepare(
+      "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)"
+    ).run(req.params.key, valueStr);
 
     res.json({ success: true });
   } catch (error) {
     console.error(`Database write error for key ${req.params.key}:`, error);
     res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    if (conn) conn.release();
   }
 });
 
 // Generic DELETE endpoint
-app.delete('/api/data/:key', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Database not initialized' });
+app.delete('/api/data/:key', (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
-  // Prevent dangerous wildcard deletes without auth (for now just restrict wildcard length or disable it if unauthed, but since no auth yet, we keep it but log warning)
   const key = req.params.key;
 
-  let conn;
   try {
-    conn = await pool.getConnection();
-
-    let result;
+    let info;
     if (key.endsWith('*')) {
       const prefix = key.slice(0, -1);
       if (prefix.length < 3) {
         return res.status(400).json({ error: 'Wildcard prefix too short' });
       }
-      result = await conn.query("DELETE FROM kv_store WHERE `key` LIKE ?", [`${prefix}%`]);
+      info = db.prepare("DELETE FROM kv_store WHERE key LIKE ?").run(`${prefix}%`);
     } else {
-      result = await conn.query("DELETE FROM kv_store WHERE `key` = ?", [key]);
+      info = db.prepare("DELETE FROM kv_store WHERE key = ?").run(key);
     }
 
-    if (result.affectedRows > 0) {
-      res.json({ success: true, message: `Deleted ${result.affectedRows} keys matching '${key}'.` });
+    if (info.changes > 0) {
+      res.json({ success: true, message: `Deleted ${info.changes} keys matching '${key}'.` });
     } else {
       res.json({ success: true, message: `No keys matching '${key}' found.` });
     }
   } catch (error) {
     console.error(`Database delete error for key ${req.params.key}:`, error);
     res.status(500).json({ error: 'Internal server error' });
-  } finally {
-    if (conn) conn.release();
   }
 });
 
@@ -414,6 +354,5 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend server running on http://127.0.0.1:${PORT}`);
     console.log(`Security: CORS enabled for origins: ${allowedOrigins.join(', ')}`);
-    console.log(`Security: Rate limiting enabled.`);
   });
 }
