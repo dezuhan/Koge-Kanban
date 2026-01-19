@@ -399,9 +399,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     setProjects(fetchedProjects);
                     setShowConnModal(false);
                 } else if (fetchedProjects === null) {
-                    console.error("[AppContext] Failed to fetch projects. Setting to null for connection error UI.");
-                    setProjects(null);
-                    setShowConnModal(true);
+                    console.error("[AppContext] Failed to fetch projects. Modal disabled.");
+                    setProjects([]);
+                    setShowConnModal(false);
                 } else {
                     // SEEDING LOGIC: Database is empty (fetchedProjects is [])
                     const seedProjects = [SEED_PROJECT];

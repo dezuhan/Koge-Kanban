@@ -57,11 +57,11 @@ const Layout: React.FC = () => {
       </div>
       <ChatBot />
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
-      <DatabaseConfigModal
+      {/* <DatabaseConfigModal
         isOpen={showConnModal}
         initialUrl={apiBaseUrl || 'http://localhost:3000/api'}
         onSave={handleSaveDatabaseUrl}
-      />
+      /> */}
     </div>
   );
 };

@@ -125,3 +125,10 @@ dist
 dist/
 dist-ssr/
 *.local
+
+# SQLite
+kanban.db
+kanban.db-shm
+kanban.db-wal
+*.db
+*.db-journal
