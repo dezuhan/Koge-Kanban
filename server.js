@@ -1230,11 +1230,14 @@ const DEFAULT_OLLAMA_HOST = rawOllamaHost.split(',')[0].trim();
 const getOllamaHost = (req) => {
   let host = DEFAULT_OLLAMA_HOST;
 
-  if (process.env.NODE_ENV !== 'production') {
-    const clientEndpoint = req.headers['x-ollama-endpoint'];
-    if (clientEndpoint) {
-      host = clientEndpoint;
-    }
+  // SECURITY: 
+  // Allow custom client endpoint if:
+  // 1. We are in development mode (for local testing)
+  // 2. OR the user is authenticated (BYO-AI for logged-in users)
+  // This prevents anonymous SSRF attacks in production while keeping flexibility for users.
+  const clientEndpoint = req.headers['x-ollama-endpoint'];
+  if (clientEndpoint && (process.env.NODE_ENV !== 'production' || req.user)) {
+    host = clientEndpoint;
   }
 
   // Ensure protocol exists
@@ -1262,6 +1265,16 @@ const getOllamaHost = (req) => {
  * Publicly accessible so status indicators work for all users (including guests).
  */
 app.get('/api/ai/models', async (req, res) => {
+  // Attempt to authenticate optionally to see if we can honor a custom x-ollama-endpoint
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token) {
+    try {
+      const user = jwt.verify(token, JWT_SECRET);
+      req.user = user;
+    } catch (e) { /* ignore invalid tokens, proceed as guest */ }
+  }
+
   const ollamaHost = getOllamaHost(req);
   try {
     const controller = new AbortController();
