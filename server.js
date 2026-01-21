@@ -12,7 +12,7 @@ import jwt from 'jsonwebtoken';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const SERVER_VERSION = '3.0.0';
+const SERVER_VERSION = '3.0.2';
 const UPDATE_URL = 'https://raw.githubusercontent.com/dezuhan/Koge-Kanban/refs/heads/main/server.js';
 
 const app = express();
@@ -1285,13 +1285,21 @@ app.get('/api/ai/models', async (req, res) => {
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) throw new Error("Failed to fetch models from Ollama");
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[AI Proxy] Ollama responded with ${response.status}: ${errorText}`);
+      throw new Error(`Ollama returned ${response.status}`);
+    }
 
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error("AI Models Fetch Error:", error);
-    res.status(503).json({ error: "Ollama service is offline or unreachable.", details: error.message });
+    console.error(`[AI Proxy] Connection Error to ${ollamaHost}:`, error.message);
+    res.status(503).json({
+      error: "Ollama service is offline or unreachable.",
+      details: error.message,
+      target: ollamaHost
+    });
   }
 });
 
