@@ -30,7 +30,7 @@ app.use(helmet({
 
 
 // CORS Configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'];
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'https://demo-koge-kanban.vercel.app', 'https://demo-koge-kanban.dezuhan.my.id'];
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
@@ -1117,15 +1117,39 @@ const DEFAULT_OLLAMA_HOST = rawOllamaHost.split(',')[0].trim();
  * Only allow host from environment variable or localhost default in production.
  * In development, we allow the client to specify the endpoint for flexibility.
  */
-const getOllamaHost = (req) => {
-  let host = DEFAULT_OLLAMA_HOST;
+// const getOllamaHost = (req) => {
+//   let host = DEFAULT_OLLAMA_HOST;
 
-  if (process.env.NODE_ENV !== 'production') {
-    const clientEndpoint = req.headers['x-ollama-endpoint'];
-    if (clientEndpoint) {
-      host = clientEndpoint;
-    }
-  }
+//   if (process.env.NODE_ENV !== 'production') {
+//     const clientEndpoint = req.headers['x-ollama-endpoint'];
+//     if (clientEndpoint) {
+//       host = clientEndpoint;
+//     }
+//   }
+
+//   // Ensure protocol exists
+//   if (host && !host.startsWith('http://') && !host.startsWith('https://')) {
+//     host = `http://${host}`;
+//   }
+
+//   // Handle missing port for local addresses (default to 11434 for Ollama)
+//   // We check if there's no colon after the protocol part (e.g., http://localhost has no second colon)
+//   const protocolPart = host.startsWith('https') ? 8 : 7;
+//   if (host && !host.slice(protocolPart).includes(':')) {
+//     const hostname = host.slice(protocolPart).split('/')[0];
+//     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+//       host = host.replace(hostname, `${hostname}:11434`);
+//     }
+//   }
+
+//   // Handle trailing slash
+//   return host.endsWith('/') ? host.slice(0, -1) : host;
+// };
+
+const getOllamaHost = (req) => {
+  // Ambil endpoint dari header secara langsung tanpa mengecek NODE_ENV
+  const clientEndpoint = req.headers['x-ollama-endpoint'];
+  let host = clientEndpoint || DEFAULT_OLLAMA_HOST;
 
   // Ensure protocol exists
   if (host && !host.startsWith('http://') && !host.startsWith('https://')) {
@@ -1133,7 +1157,6 @@ const getOllamaHost = (req) => {
   }
 
   // Handle missing port for local addresses (default to 11434 for Ollama)
-  // We check if there's no colon after the protocol part (e.g., http://localhost has no second colon)
   const protocolPart = host.startsWith('https') ? 8 : 7;
   if (host && !host.slice(protocolPart).includes(':')) {
     const hostname = host.slice(protocolPart).split('/')[0];
@@ -1145,6 +1168,7 @@ const getOllamaHost = (req) => {
   // Handle trailing slash
   return host.endsWith('/') ? host.slice(0, -1) : host;
 };
+
 
 /**
  * GET /api/ai/models
