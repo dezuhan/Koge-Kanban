@@ -66,12 +66,12 @@ If you only want to host your data locally and use a public frontend, follow the
     ```powershell
     npm init -y
     npm pkg set type="module"
-    npm install express better-sqlite3 cors dotenv helmet bcryptjs jsonwebtoken
+    npm install express better-sqlite3 dotenv helmet bcryptjs jsonwebtoken
     ```
 3.  **Get Server File**:
     Download `server.js` from the [official repo](https://raw.githubusercontent.com/dezuhan/Koge-Kanban/main/server.js).
 4.  **Configure**:
-    Create a `.env` file with your `JWT_SECRET` and `ALLOWED_ORIGINS`.
+    Create a `.env` file with your `JWT_SECRET`.
 5.  **Run**:
     ```bash
     node server.js
@@ -94,7 +94,6 @@ The latest version implements strict security protocols:
 | :--- | :--- | :--- |
 | `DB_PATH` | Path to SQLite database file | `db/kanban.db` |
 | `JWT_SECRET` | Secret key for signing tokens | *Required* |
-| `ALLOWED_ORIGINS` | CORS whitelist (comma separated) | `http://localhost:5173` |
 | `OLLAMA_HOST` | URL for the Ollama API | `http://127.0.0.1:11434` |
 | `PORT` | Backend server port | `3000` |
 

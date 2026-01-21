@@ -16,7 +16,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
-    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.22.1",
     "helmet": "^8.1.0",

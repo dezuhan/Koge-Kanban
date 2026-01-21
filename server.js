@@ -1,6 +1,5 @@
 import express from 'express';
 import Database from 'better-sqlite3';
-import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
@@ -25,21 +24,6 @@ app.use(helmet({
       connectSrc: ["'self'", process.env.OLLAMA_HOST || "http://127.0.0.1:11434"],
     },
   },
-}));
-
-
-
-// CORS Configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'https://demo-koge-kanban.vercel.app', 'https://demo-koge-kanban.dezuhan.my.id'];
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
 }));
 
 app.use(express.json({ limit: '10mb' })); // Limit payload size
@@ -1298,6 +1282,5 @@ export default app;
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend server running on http://127.0.0.1:${PORT}`);
-    console.log(`Security: CORS enabled for origins: ${allowedOrigins.join(', ')}`);
   });
 }
