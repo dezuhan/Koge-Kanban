@@ -330,13 +330,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const fetchModels = useCallback(async (): Promise<string[]> => {
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for stability
+
             const response = await fetch('/api/ai/models', {
+                signal: controller.signal,
                 headers: {
                     'Content-Type': 'application/json',
                     'x-ollama-endpoint': ollamaEndpoint,
                     'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
                 }
             });
+
+            clearTimeout(timeoutId);
+
             if (!response.ok) {
                 setAiModels([]);
                 setIsOllamaOnline(false);
@@ -437,7 +444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsAILoading(true);
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased to 10s for public servers
 
             const response = await fetch('/api/ai/generate', {
                 method: 'POST',
