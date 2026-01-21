@@ -12,29 +12,8 @@ import jwt from 'jsonwebtoken';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const SERVER_VERSION = '3.0.2';
-const UPDATE_URL = 'https://raw.githubusercontent.com/dezuhan/Koge-Kanban/refs/heads/main/server.js';
-
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'koge-kanban-secret-key-change-me';
-
-/**
- * Middleware: authenticateToken
- * Verifies JWT token and attaches user to the request.
- */
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.status(401).json({ error: 'Authentication required' });
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
-    req.user = user;
-    next();
-  });
-};
 
 // Security Middleware
 app.use(helmet({
@@ -51,7 +30,7 @@ app.use(helmet({
 
 
 // CORS Configuration
-const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:11434'];
+const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:5173', 'http://localhost:3000'];
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
@@ -177,7 +156,7 @@ function cleanupLeftoverTempFiles() {
 cleanupLeftoverTempFiles();
 
 // Endpoint to trigger cleanup manually
-app.post('/api/cleanup/temp', authenticateToken, (req, res) => {
+app.post('/api/cleanup/temp', (req, res) => {
   const results = cleanupLeftoverTempFiles();
   res.json({
     success: true,
@@ -185,53 +164,6 @@ app.post('/api/cleanup/temp', authenticateToken, (req, res) => {
     details: results
   });
 });
-
-/**
- * Self-Update Logic
- */
-async function checkForUpdates() {
-  if (process.env.AUTO_UPDATE === 'false') return;
-
-  console.log(`[Updater] Checking for updates... (Current Version: ${SERVER_VERSION})`);
-  try {
-    const response = await fetch(UPDATE_URL);
-    if (!response.ok) throw new Error(`Github returned ${response.status}`);
-
-    const remoteCode = await response.text();
-    const versionMatch = remoteCode.match(/const SERVER_VERSION = '([\d.]+)';/);
-
-    if (versionMatch && versionMatch[1]) {
-      const remoteVersion = versionMatch[1];
-
-      if (remoteVersion !== SERVER_VERSION) {
-        console.log(`[Updater] New version detected: ${remoteVersion}. Downloading...`);
-        fs.writeFileSync(__filename, remoteCode);
-        console.log(`[Updater] server.js updated successfully to v${remoteVersion}.`);
-        console.log(`[Updater] PLEASE RESTART THE SERVER TO APPLY CHANGES.`);
-        return { updated: true, version: remoteVersion };
-      } else {
-        console.log(`[Updater] Already up to date (v${SERVER_VERSION}).`);
-      }
-    }
-  } catch (err) {
-    console.error(`[Updater] Update check failed:`, err.message);
-  }
-  return { updated: false };
-}
-
-// Manual Update Trigger
-app.post('/api/admin/update', authenticateToken, async (req, res) => {
-  // Only allow if it's the first registered user or check for admin role if you add one later
-  if (req.user.id !== 1) {
-    return res.status(403).json({ error: 'Only administrators can trigger system updates.' });
-  }
-
-  const result = await checkForUpdates();
-  res.json({ success: true, ...result });
-});
-
-// Run update check on startup (after 3 seconds)
-setTimeout(checkForUpdates, 3000);
 
 // Initialize the database
 let db;
@@ -271,48 +203,6 @@ function initializeDatabase() {
       )
     `).run();
 
-    // --- MULTI-USER MIGRATION ---
-    const tableInfo = db.prepare("PRAGMA table_info(kv_store)").all();
-    const hasUserId = tableInfo.some(col => col.name === 'user_id');
-
-    if (!hasUserId) {
-      console.log("[Migration] Adding user_id support (Isolation) to kv_store and trash_store...");
-      try {
-        db.transaction(() => {
-          // 1. kv_store migration
-          db.prepare("ALTER TABLE kv_store RENAME TO kv_store_old").run();
-          db.prepare(`
-            CREATE TABLE kv_store (
-              user_id INTEGER,
-              key TEXT,
-              value TEXT,
-              PRIMARY KEY (user_id, key)
-            )
-          `).run();
-          // Assume legacy data belongs to the first user or ID 1
-          db.prepare("INSERT OR IGNORE INTO kv_store (user_id, key, value) SELECT 1, key, value FROM kv_store_old").run();
-          db.prepare("DROP TABLE kv_store_old").run();
-
-          // 2. trash_store migration
-          db.prepare("ALTER TABLE trash_store RENAME TO trash_store_old").run();
-          db.prepare(`
-            CREATE TABLE trash_store (
-              user_id INTEGER,
-              key TEXT,
-              value TEXT,
-              deleted_at INTEGER,
-              PRIMARY KEY (user_id, key)
-            )
-          `).run();
-          db.prepare("INSERT OR IGNORE INTO trash_store (user_id, key, value, deleted_at) SELECT 1, key, value, deleted_at FROM trash_store_old").run();
-          db.prepare("DROP TABLE trash_store_old").run();
-        })();
-        console.log("[Migration] Successfully migrated to multi-user schema.");
-      } catch (err) {
-        console.error("[Migration] Error during table migration:", err);
-      }
-    }
-
     console.log(`SQLite database checked/created at: ${DB_PATH}`);
   } catch (err) {
     console.error("Database Initialization Error:", err);
@@ -328,12 +218,10 @@ initializeDatabase();
  * Logic to restore an item from trash_store to kv_store.
  */
 const internalPerformRestore = (db, key, options = {}) => {
-  const userId = options.userId;
   if (!db) throw new Error("Database not initialized");
   if (!key) throw new Error("Key is required for restoration");
-  if (!userId) throw new Error("User authentication required for restoration");
 
-  const item = db.prepare("SELECT value FROM trash_store WHERE user_id = ? AND key = ?").get(userId, key);
+  const item = db.prepare("SELECT value FROM trash_store WHERE key = ?").get(key);
   if (!item) throw new Error(`Item "${key}" not found in trash.`);
 
   const valueStr = item.value;
@@ -352,7 +240,7 @@ const internalPerformRestore = (db, key, options = {}) => {
   const ensureProject = (project) => {
     if (!project || !project.id) return;
     const pk = 'kanban_projects';
-    const pr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, pk);
+    const pr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(pk);
     let projects = [];
     try {
       projects = pr ? JSON.parse(pr.value) : [];
@@ -361,15 +249,15 @@ const internalPerformRestore = (db, key, options = {}) => {
 
     if (!projects.find(p => p.id === project.id)) {
       projects.push(project);
-      db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)")
-        .run(userId, pk, JSON.stringify(projects));
+      db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)")
+        .run(pk, JSON.stringify(projects));
     }
   };
 
   const ensureColumn = (projectId, column) => {
     if (!projectId || !column || !column.id) return;
     const ck = `columns_${projectId}`;
-    const cr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, ck);
+    const cr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(ck);
     let columns = [];
     try {
       columns = cr ? JSON.parse(cr.value) : [];
@@ -378,8 +266,8 @@ const internalPerformRestore = (db, key, options = {}) => {
 
     if (!columns.find(c => c.id === column.id)) {
       columns.push(column);
-      db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)")
-        .run(userId, ck, JSON.stringify(columns));
+      db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)")
+        .run(ck, JSON.stringify(columns));
     }
   };
 
@@ -394,7 +282,7 @@ const internalPerformRestore = (db, key, options = {}) => {
         if (!task) throw new Error("Task not found in bundle");
 
         const tk = `tasks_${projectId}`;
-        const tr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, tk);
+        const tr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(tk);
         let currentTasks = [];
         try {
           currentTasks = tr ? JSON.parse(tr.value) : [];
@@ -403,7 +291,7 @@ const internalPerformRestore = (db, key, options = {}) => {
 
         if (!currentTasks.find(t => t.id === targetId)) {
           currentTasks.push(task);
-          db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, tk, JSON.stringify(currentTasks));
+          db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(tk, JSON.stringify(currentTasks));
         }
         return { success: true, message: `Task ${targetId} restored from bundle.` };
       }
@@ -417,7 +305,7 @@ const internalPerformRestore = (db, key, options = {}) => {
         // Also restore tasks for this column
         const tasksToRestore = valueObj.tasks?.filter(t => t.status === targetId) || [];
         const tk = `tasks_${projectId}`;
-        const tr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, tk);
+        const tr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(tk);
         let currentTasks = [];
         try {
           currentTasks = tr ? JSON.parse(tr.value) : [];
@@ -427,7 +315,7 @@ const internalPerformRestore = (db, key, options = {}) => {
         tasksToRestore.forEach(t => {
           if (!currentTasks.find(ct => ct.id === t.id)) currentTasks.push(t);
         });
-        db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, tk, JSON.stringify(currentTasks));
+        db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(tk, JSON.stringify(currentTasks));
         return { success: true, message: `Column ${targetId} and its tasks restored.` };
       }
     }
@@ -439,7 +327,7 @@ const internalPerformRestore = (db, key, options = {}) => {
     if (parts.length === 3) {
       const projectId = parts[1];
       const pk = 'kanban_projects';
-      const pr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, pk);
+      const pr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(pk);
       let projects = [];
       try {
         projects = pr ? JSON.parse(pr.value) : [];
@@ -447,7 +335,7 @@ const internalPerformRestore = (db, key, options = {}) => {
 
       if (!projects || !projects.find(p => p.id === projectId)) {
         const bk = `board_bundle_${projectId}`;
-        const bi = db.prepare("SELECT value FROM trash_store WHERE user_id = ? AND key = ?").get(userId, bk);
+        const bi = db.prepare("SELECT value FROM trash_store WHERE key = ?").get(bk);
         if (bi) {
           try {
             ensureProject(JSON.parse(bi.value).project);
@@ -459,7 +347,7 @@ const internalPerformRestore = (db, key, options = {}) => {
         }
       }
       const tk = `tasks_${projectId}`;
-      const tr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, tk);
+      const tr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(tk);
       let tasks = [];
       try {
         tasks = tr ? JSON.parse(tr.value) : [];
@@ -468,12 +356,12 @@ const internalPerformRestore = (db, key, options = {}) => {
 
       if (!tasks.find(t => t.id === valueObj.id)) {
         tasks.push(valueObj);
-        db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, tk, JSON.stringify(tasks));
+        db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(tk, JSON.stringify(tasks));
       }
     }
   } else if (key.startsWith('project_info_')) {
     const pk = 'kanban_projects';
-    const pr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, pk);
+    const pr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(pk);
     let projects = [];
     try {
       projects = pr ? JSON.parse(pr.value) : [];
@@ -482,20 +370,20 @@ const internalPerformRestore = (db, key, options = {}) => {
 
     if (!projects.find(p => p.id === valueObj.id)) {
       projects.push(valueObj);
-      db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, pk, JSON.stringify(projects));
+      db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(pk, JSON.stringify(projects));
     }
   } else if (key.startsWith('board_bundle_')) {
     const { project, tasks, columns } = valueObj;
     if (!project) throw new Error("Invalid board bundle: missing project info");
     ensureProject(project);
-    db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, `tasks_${project.id}`, JSON.stringify(tasks || []));
-    db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, `columns_${project.id}`, JSON.stringify(columns || []));
+    db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(`tasks_${project.id}`, JSON.stringify(tasks || []));
+    db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(`columns_${project.id}`, JSON.stringify(columns || []));
   } else if (key.startsWith('column_bundle_')) {
     const { column, tasks, _projectId } = valueObj;
     if (!column || !_projectId) throw new Error("Invalid column bundle: missing data");
 
     const pk = 'kanban_projects';
-    const pr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, pk);
+    const pr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(pk);
     let projects = [];
     try {
       projects = pr ? JSON.parse(pr.value) : [];
@@ -503,13 +391,13 @@ const internalPerformRestore = (db, key, options = {}) => {
 
     if (!projects || !projects.find(p => p.id === _projectId)) {
       const bk = `board_bundle_${_projectId}`;
-      const bi = db.prepare("SELECT value FROM trash_store WHERE user_id = ? AND key = ?").get(userId, bk);
+      const bi = db.prepare("SELECT value FROM trash_store WHERE key = ?").get(bk);
       if (bi) ensureProject(JSON.parse(bi.value).project);
       else throw new Error("Parent project missing and no board bundle available.");
     }
     ensureColumn(_projectId, column);
     const tk = `tasks_${_projectId}`;
-    const tr = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, tk);
+    const tr = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(tk);
     let currentTasks = [];
     try {
       currentTasks = tr ? JSON.parse(tr.value) : [];
@@ -518,34 +406,23 @@ const internalPerformRestore = (db, key, options = {}) => {
 
     const ids = new Set(currentTasks.map(t => t.id));
     (tasks || []).forEach(t => { if (!ids.has(t.id)) currentTasks.push(t); });
-    db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, tk, JSON.stringify(currentTasks));
+    db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(tk, JSON.stringify(currentTasks));
   } else {
     // Generic KV restore
-    db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(userId, key, valueStr);
+    db.prepare("INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)").run(key, valueStr);
   }
 
   // Clean up trash after successful restore
-  db.prepare("DELETE FROM trash_store WHERE user_id = ? AND key = ?").run(userId, key);
+  db.prepare("DELETE FROM trash_store WHERE key = ?").run(key);
   return { success: true };
 };
 
-// Health Check Endpoint (Public)
-app.get('/api/status', (req, res) => {
-  res.json({
-    status: 'online',
-    message: 'Koge-Kanban Server is running',
-    version: SERVER_VERSION,
-    database: db ? 'connected' : 'disconnected'
-  });
-});
-
-// New Endpoint: Get all tasks from all projects for the authenticated user
-app.get('/api/tasks/global', authenticateToken, (req, res) => {
+// New Endpoint: Get all tasks from all projects
+app.get('/api/tasks/global', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const userId = req.user.id;
 
   try {
-    const rows = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key LIKE 'tasks_%'").all(userId);
+    const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE 'tasks_%'").all();
 
     // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
@@ -577,16 +454,15 @@ app.get('/api/tasks/global', authenticateToken, (req, res) => {
 });
 
 // Generic GET endpoint
-app.get('/api/data/:key', authenticateToken, (req, res) => {
+app.get('/api/data/:key', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const userId = req.user.id;
 
   if (!req.params.key || req.params.key.length > 255) {
     return res.status(400).json({ error: 'Invalid key' });
   }
 
   try {
-    const row = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, req.params.key);
+    const row = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(req.params.key);
 
     if (row) {
       res.json(JSON.parse(row.value));
@@ -600,9 +476,8 @@ app.get('/api/data/:key', authenticateToken, (req, res) => {
 });
 
 // Generic POST endpoint
-app.post('/api/data/:key', authenticateToken, (req, res) => {
+app.post('/api/data/:key', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const userId = req.user.id;
 
   if (!req.params.key || req.params.key.length > 255) {
     return res.status(400).json({ error: 'Invalid key' });
@@ -612,8 +487,8 @@ app.post('/api/data/:key', authenticateToken, (req, res) => {
     const valueStr = JSON.stringify(req.body);
 
     db.prepare(
-      "INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)"
-    ).run(userId, req.params.key, valueStr);
+      "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)"
+    ).run(req.params.key, valueStr);
 
     res.json({ success: true });
   } catch (error) {
@@ -623,11 +498,10 @@ app.post('/api/data/:key', authenticateToken, (req, res) => {
 });
 
 // Generic DELETE endpoint (Now with Soft Delete)
-app.delete('/api/data/:key', authenticateToken, (req, res) => {
+app.delete('/api/data/:key', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   const key = req.params.key;
-  const userId = req.user.id;
   const isPermanent = req.query.permanent === 'true';
 
   try {
@@ -639,10 +513,10 @@ app.delete('/api/data/:key', authenticateToken, (req, res) => {
       if (prefix.length < 3) {
         return res.status(400).json({ error: 'Wildcard prefix too short' });
       }
-      const rows = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key LIKE ?").all(userId, `${prefix}%`);
+      const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE ?").all(`${prefix}%`);
       affectedKeys = rows;
     } else {
-      const row = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, key);
+      const row = db.prepare("SELECT key, value FROM kv_store WHERE key = ?").get(key);
       if (row) affectedKeys = [row];
     }
 
@@ -652,15 +526,15 @@ app.delete('/api/data/:key', authenticateToken, (req, res) => {
 
     // 2. Perform Delete (Soft or Permanent)
     const now = Date.now();
-    const insertTrash = db.prepare("INSERT OR REPLACE INTO trash_store (user_id, key, value, deleted_at) VALUES (?, ?, ?, ?)");
-    const deleteMain = db.prepare("DELETE FROM kv_store WHERE user_id = ? AND key = ?");
+    const insertTrash = db.prepare("INSERT OR REPLACE INTO trash_store (key, value, deleted_at) VALUES (?, ?, ?)");
+    const deleteMain = db.prepare("DELETE FROM kv_store WHERE key = ?");
 
     const transaction = db.transaction((items) => {
       for (const item of items) {
         if (!isPermanent) {
-          insertTrash.run(userId, item.key, item.value, now);
+          insertTrash.run(item.key, item.value, now);
         }
-        deleteMain.run(userId, item.key);
+        deleteMain.run(item.key);
       }
     });
 
@@ -682,11 +556,10 @@ app.delete('/api/data/:key', authenticateToken, (req, res) => {
  * Explicitly move an item to trash. Used for items that don't have a unique DB key
  * but should be recoverable (like individual tasks within a project list).
  */
-app.post('/api/trash/item', authenticateToken, (req, res) => {
+app.post('/api/trash/item', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   const { key, value } = req.body;
-  const userId = req.user.id;
   if (!key || !value) {
     return res.status(400).json({ error: 'Key and value are required' });
   }
@@ -696,8 +569,8 @@ app.post('/api/trash/item', authenticateToken, (req, res) => {
     const now = Date.now();
 
     db.prepare(
-      "INSERT OR REPLACE INTO trash_store (user_id, key, value, deleted_at) VALUES (?, ?, ?, ?)"
-    ).run(userId, key, valueStr, now);
+      "INSERT OR REPLACE INTO trash_store (key, value, deleted_at) VALUES (?, ?, ?)"
+    ).run(key, valueStr, now);
 
     res.json({ success: true, message: 'Item moved to trash.' });
   } catch (error) {
@@ -712,11 +585,10 @@ app.post('/api/trash/item', authenticateToken, (req, res) => {
  * GET /api/trash
  * Returns all items currently in the trash.
  */
-app.get('/api/trash', authenticateToken, (req, res) => {
+app.get('/api/trash', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const userId = req.user.id;
   try {
-    const rows = db.prepare("SELECT key, value, deleted_at FROM trash_store WHERE user_id = ? ORDER BY deleted_at DESC").all(userId);
+    const rows = db.prepare("SELECT key, value, deleted_at FROM trash_store ORDER BY deleted_at DESC").all();
     const items = rows.map(r => ({
       key: r.key,
       value: JSON.parse(r.value),
@@ -732,15 +604,17 @@ app.get('/api/trash', authenticateToken, (req, res) => {
  * POST /api/trash/restore/:key
  * Restores an item from trash back to the main store.
  */
-app.post('/api/trash/restore/:key', authenticateToken, (req, res) => {
+app.post('/api/trash/restore/:key', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const key = req.params.key;
-  const userId = req.user.id;
   const options = req.body || {};
 
   try {
-    const result = internalPerformRestore(db, key, { ...options, userId });
-    res.json(result);
+    const transaction = db.transaction(() => {
+      return internalPerformRestore(db, key, options);
+    });
+    const result = transaction();
+    res.json({ success: true, message: result.message || 'Item restored successfully.' });
   } catch (error) {
     console.error(`Restore error for ${key}:`, error);
     res.status(500).json({ error: 'Failed to restore', details: error.message });
@@ -751,10 +625,9 @@ app.post('/api/trash/restore/:key', authenticateToken, (req, res) => {
  * POST /api/trash/restore-bulk
  * Restores multiple items from trash.
  */
-app.post('/api/trash/restore-bulk', authenticateToken, (req, res) => {
+app.post('/api/trash/restore-bulk', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const { keys } = req.body;
-  const userId = req.user.id;
   if (!Array.isArray(keys)) return res.status(400).json({ error: 'Keys must be an array' });
 
   const results = { success: [], errors: [] };
@@ -763,7 +636,7 @@ app.post('/api/trash/restore-bulk', authenticateToken, (req, res) => {
     const transaction = db.transaction(() => {
       for (const key of keys) {
         try {
-          internalPerformRestore(db, key, { userId });
+          internalPerformRestore(db, key);
           results.success.push(key);
         } catch (err) {
           results.errors.push({ key, error: err.message || 'Unknown error during item restoration' });
@@ -791,16 +664,15 @@ app.post('/api/trash/restore-bulk', authenticateToken, (req, res) => {
  * DELETE /api/trash/permanent/:key
  * Permanently deletes an item from the trash.
  */
-app.delete('/api/trash/permanent/:key', authenticateToken, (req, res) => {
+app.delete('/api/trash/permanent/:key', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const key = req.params.key;
-  const userId = req.user.id;
   try {
     let info;
     if (key === '__all__') {
-      info = db.prepare("DELETE FROM trash_store WHERE user_id = ?").run(userId);
+      info = db.prepare("DELETE FROM trash_store").run();
     } else {
-      info = db.prepare("DELETE FROM trash_store WHERE user_id = ? AND key = ?").run(userId, key);
+      info = db.prepare("DELETE FROM trash_store WHERE key = ?").run(key);
     }
     res.json({ success: true, deletedCount: info.changes });
   } catch (err) {
@@ -809,6 +681,8 @@ app.delete('/api/trash/permanent/:key', authenticateToken, (req, res) => {
 });
 
 // --- Authentication Endpoints ---
+
+const JWT_SECRET = process.env.JWT_SECRET || 'koge-kanban-secret-key-change-me';
 
 /**
  * POST /api/auth/register
@@ -890,27 +764,21 @@ app.post('/api/auth/login', async (req, res) => {
  * DELETE /api/auth/user/:id
  * Delete a user account (Simple version without token validation for now, but usually should be authenticated)
  */
-app.delete('/api/auth/user/:id', authenticateToken, async (req, res) => {
+app.delete('/api/auth/user/:id', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const id = req.params.id;
-  const targetId = !isNaN(Number(id)) ? Number(id) : id;
-
-  // Only allow deleting own account (unless we add admin logic later)
-  if (req.user.id !== targetId) {
-    return res.status(403).json({ error: 'You can only delete your own account.' });
-  }
 
   try {
-    console.log(`[Account] Attempting to delete user ID: ${targetId}`);
     const transaction = db.transaction(() => {
-      // 1. Delete user record
-      const info = db.prepare("DELETE FROM users WHERE id = ?").run(targetId);
+      // 1. Delete the user record
+      const info = db.prepare("DELETE FROM users WHERE id = ?").run(id);
 
       if (info.changes > 0) {
-        // 2. Wipe ONLY this user's data from the connection (Isolation)
-        db.prepare("DELETE FROM kv_store WHERE user_id = ?").run(targetId);
-        db.prepare("DELETE FROM trash_store WHERE user_id = ?").run(targetId);
-        console.log(`[Account] User ${targetId} data successfully wiped.`);
+        // 2. Wipe ALL other data from the connection as requested
+        // This includes all board data across all users on this connection
+        db.prepare("DELETE FROM kv_store").run();
+        db.prepare("DELETE FROM trash_store").run();
+        console.log(`[Account] User ${id} deleted and all data wiped from connection.`);
       }
       return info;
     });
@@ -922,7 +790,7 @@ app.delete('/api/auth/user/:id', authenticateToken, async (req, res) => {
     }
     res.json({
       success: true,
-      message: 'Your account and all associated data have been permanently deleted.'
+      message: 'User account and all data from this connection have been permanently deleted.'
     });
   } catch (err) {
     console.error("Delete user and data error:", err);
@@ -937,41 +805,43 @@ app.delete('/api/auth/user/:id', authenticateToken, async (req, res) => {
  * Wipes all project-related data (projects, tasks, columns, trash) 
  * but preserves system settings and backups.
  */
-app.post('/api/reset', authenticateToken, (req, res) => {
+app.post('/api/reset', (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const userId = req.user.id;
+
   const { includeBackups } = req.body;
 
   try {
     const transaction = db.transaction(() => {
-      // Clear ONLY THIS user's data
-      db.prepare("DELETE FROM kv_store WHERE user_id = ?").run(userId);
-      db.prepare("DELETE FROM trash_store WHERE user_id = ?").run(userId);
+      // 1. Delete project index
+      db.prepare("DELETE FROM kv_store WHERE key = ?").run('kanban_projects');
+
+      // 2. Delete all tasks and columns (those keys start with tasks_ or columns_)
+      db.prepare("DELETE FROM kv_store WHERE key LIKE 'tasks_%'").run();
+      db.prepare("DELETE FROM kv_store WHERE key LIKE 'columns_%'").run();
+      db.prepare("DELETE FROM kv_store WHERE key LIKE 'chat_history_%'").run();
+
+      // 3. Clear trash
+      db.prepare("DELETE FROM trash_store").run();
     });
 
     transaction();
 
     let backupMessage = '';
-    // Backups are user-isolated. 
-    // If includeBackups is true, only delete backups belonging to this specific user.
     if (includeBackups) {
       if (fs.existsSync(BACKUP_DIR)) {
         const files = fs.readdirSync(BACKUP_DIR);
-        const prefix = `user-${userId}-backup-`;
         for (const file of files) {
-          if (file.startsWith(prefix)) {
-            try {
-              fs.unlinkSync(path.join(BACKUP_DIR, file));
-            } catch (e) {
-              console.error(`Failed to delete backup ${file}:`, e);
-            }
+          try {
+            fs.unlinkSync(path.join(BACKUP_DIR, file));
+          } catch (e) {
+            console.error(`Failed to delete backup ${file}:`, e);
           }
         }
-        backupMessage = ' and all your backups were deleted';
+        backupMessage = ' and all backups were deleted';
       }
     }
 
-    res.json({ success: true, message: `All your project data${backupMessage} has been wiped.` });
+    res.json({ success: true, message: `All project data${backupMessage} has been wiped.` });
   } catch (err) {
     console.error("Reset error:", err);
     res.status(500).json({ error: 'Failed to reset data', details: err.message });
@@ -982,31 +852,17 @@ app.post('/api/reset', authenticateToken, (req, res) => {
 
 /**
  * POST /api/backup
- * Creates a JSON export of the user's data.
+ * Creates a backup of the current database file.
  */
-app.post('/api/backup', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
+app.post('/api/backup', async (req, res) => {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupName = `user-${userId}-backup-${timestamp}.json`;
+  const backupName = `kanban-backup-${timestamp}.db`;
   const backupPath = path.join(BACKUP_DIR, backupName);
 
   try {
+    // We use the SQLite backup API for a safe hot backup
     if (!db) throw new Error("DB not initialized");
-
-    const kvData = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ?").all(userId);
-    const trashData = db.prepare("SELECT key, value, deleted_at FROM trash_store WHERE user_id = ?").all(userId);
-
-    const exportData = {
-      version: '1.0.0',
-      userId: userId,
-      timestamp: Date.now(),
-      data: {
-        kv_store: kvData,
-        trash_store: trashData
-      }
-    };
-
-    fs.writeFileSync(backupPath, JSON.stringify(exportData, null, 2));
+    await db.backup(backupPath);
     res.json({ success: true, filename: backupName });
   } catch (err) {
     console.error("Backup failed:", err);
@@ -1016,13 +872,12 @@ app.post('/api/backup', authenticateToken, async (req, res) => {
 
 /**
  * GET /api/backups
- * Lists available backups for the authenticated user.
+ * Lists all available database backups.
  */
-app.get('/api/backups', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+app.get('/api/backups', (req, res) => {
   try {
     const files = fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.startsWith(`user-${userId}-backup-`) && f.endsWith('.json'))
+      .filter(f => f.endsWith('.db'))
       .map(f => {
         const stats = fs.statSync(path.join(BACKUP_DIR, f));
         return {
@@ -1040,15 +895,13 @@ app.get('/api/backups', authenticateToken, (req, res) => {
 
 /**
  * DELETE /api/backups/:filename
- * Deletes a specific backup file belonging to the user.
+ * Deletes a specific backup file.
  */
-app.delete('/api/backups/:filename', authenticateToken, (req, res) => {
+app.delete('/api/backups/:filename', (req, res) => {
   const filename = req.params.filename;
-  const userId = req.user.id;
-
-  // Security: Prevent path traversal and enforce ownership
-  if (!filename.startsWith(`user-${userId}-backup-`) || !filename.endsWith('.json') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-    return res.status(403).json({ error: 'Invalid backup filename or ownership' });
+  // Security: prevent path traversal by only allowing specific filename pattern
+  if (!filename.startsWith('kanban-backup-') || !filename.endsWith('.db') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
   }
 
   const filePath = path.join(BACKUP_DIR, filename);
@@ -1056,11 +909,14 @@ app.delete('/api/backups/:filename', authenticateToken, (req, res) => {
   try {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      console.log(`[Backup] Successfully deleted backup: ${filename}`);
       res.json({ success: true });
     } else {
+      console.warn(`[Backup] Delete failed: File not found: ${filePath}`);
       res.status(404).json({ error: 'Backup not found' });
     }
   } catch (err) {
+    console.error(`[Backup] Failed to delete backup ${filename}:`, err);
     res.status(500).json({ error: 'Failed to delete backup', details: err.message });
   }
 });
@@ -1069,114 +925,153 @@ app.delete('/api/backups/:filename', authenticateToken, (req, res) => {
  * POST /api/backups/restore
  * Restores the database from a backup file.
  */
-app.post('/api/backups/restore', authenticateToken, async (req, res) => {
+app.post('/api/backups/restore', async (req, res) => {
   const { filename } = req.body;
-  const userId = req.user.id;
 
-  if (!filename) return res.status(400).json({ error: 'Missing backup filename' });
+  if (!filename) {
+    return res.status(400).json({ error: 'Missing backup filename' });
+  }
 
-  // Enforce ownership check
-  if (!filename.startsWith(`user-${userId}-backup-`) || !filename.endsWith('.json') || filename.includes('..')) {
-    return res.status(403).json({ error: 'Unauthorized restore attempt' });
+  // Security: prevent path traversal
+  if (!filename.startsWith('kanban-backup-') || !filename.endsWith('.db') || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid backup filename' });
   }
 
   const filePath = path.join(BACKUP_DIR, filename);
 
   try {
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Backup file not found' });
-
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const backup = JSON.parse(content);
-
-    // One more safety check on data content
-    if (backup.userId && backup.userId !== userId) {
-      return res.status(403).json({ error: 'Backup file does not belong to you' });
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Backup file not found on server' });
     }
 
-    const { kv_store, trash_store } = backup.data || {};
+    console.log(`[Backup] Starting SQL-based restore from: ${filename}...`);
+
+    if (!db) return res.status(503).json({ error: 'Database not initialized' });
+
+    // Way 3: Extremely Safe Memory Copy (bypass file locks on backup file)
+    let backupDb;
+    const tempBackupPath = path.join(TEMP_DIR, `temp_restore_${Date.now()}.db`);
 
     try {
-      const restoreTransaction = db.transaction(() => {
-        // Scoped Clear: Only delete THIS user's data
-        db.prepare("DELETE FROM kv_store WHERE user_id = ?").run(userId);
-        db.prepare("DELETE FROM trash_store WHERE user_id = ?").run(userId);
+      // 1. Copy backup file to a temp location to avoid any locks on the original backup file
+      fs.copyFileSync(filePath, tempBackupPath);
 
-        // Scoped insertion
-        const insertKV = db.prepare("INSERT INTO kv_store (user_id, key, value) VALUES (?, ?, ?)");
-        if (kv_store) {
-          for (const row of kv_store) {
-            insertKV.run(userId, row.key, row.value);
+      // 2. Open the temporary backup file
+      backupDb = new Database(tempBackupPath, { readonly: true, timeout: 5000 });
+
+      const kvData = backupDb.prepare("SELECT * FROM kv_store").all();
+      const trashData = backupDb.prepare("SELECT * FROM trash_store").all();
+
+      // Close backup immediately after reading
+      backupDb.close();
+      backupDb = null;
+
+      // 3. Clear and Populate main DB using a transaction
+      // We use a retry loop if the main database is busy
+      let retries = 3;
+      let success = false;
+      let lastError = null;
+
+      while (retries > 0 && !success) {
+        try {
+          const restoreTransaction = db.transaction(() => {
+            // Clear current tables
+            db.prepare("DELETE FROM kv_store").run();
+            db.prepare("DELETE FROM trash_store").run();
+
+            // Populate from backup data
+            const insertKV = db.prepare("INSERT INTO kv_store (key, value) VALUES (?, ?)");
+            for (const row of kvData) {
+              insertKV.run(row.key, row.value);
+            }
+
+            const insertTrash = db.prepare("INSERT INTO trash_store (key, value, deleted_at) VALUES (?, ?, ?)");
+            for (const row of trashData) {
+              insertTrash.run(row.key, row.value, row.deleted_at);
+            }
+          });
+
+          restoreTransaction();
+          success = true;
+        } catch (err) {
+          lastError = err;
+          if (err.message.includes('locked') || err.message.includes('busy')) {
+            console.warn(`[Backup] Main DB locked, retrying... (${retries} left)`);
+            retries--;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } else {
+            throw err; // Non-locking error, throw immediately
           }
         }
+      }
 
-        const insertTrash = db.prepare("INSERT INTO trash_store (user_id, key, value, deleted_at) VALUES (?, ?, ?, ?)");
-        if (trash_store) {
-          for (const row of trash_store) {
-            insertTrash.run(userId, row.key, row.value, row.deleted_at);
-          }
-        }
+      if (!success) throw lastError;
+
+      console.log(`[Backup] Database records successfully restored from ${filename}`);
+      res.json({
+        success: true,
+        message: 'Database has been restored successfully. The application will now use the restored data.'
       });
+    } finally {
+      // Final cleanup to ensure no temp files are left
+      console.log(`[Backup] Cleaning up temporary restoration files...`);
+      if (backupDb) {
+        try { backupDb.close(); } catch (e) { }
+        backupDb = null;
+      }
 
-      restoreTransaction();
-      res.json({ success: true, message: 'Your data has been restored successfully.' });
-    } catch (err) {
-      throw err;
+      // Delay slightly on Windows to allow file handles to be released
+      setTimeout(() => {
+        [tempBackupPath, `${tempBackupPath}-wal`, `${tempBackupPath}-shm`, `${tempBackupPath}-journal`].forEach(f => {
+          try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) { }
+        });
+      }, 100);
     }
   } catch (err) {
-    console.error("Restore failed:", err);
+    console.error(`[Backup] Restore failed:`, err);
     res.status(500).json({ error: 'Failed to restore database', details: err.message });
   }
 });
 
-// Auto-backup Scheduler (Multi-User)
+// Auto-backup Scheduler
 const runAutoBackup = async () => {
   if (!db) return;
 
   try {
-    const users = db.prepare("SELECT id FROM users").all();
+    const row = db.prepare("SELECT value FROM kv_store WHERE key = ?").get('kanban_settings');
+    if (!row) return;
 
-    for (const user of users) {
-      const userId = user.id;
-      const row = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(userId, 'kanban_settings');
-      if (!row) continue;
+    const settings = JSON.parse(row.value);
+    const intervalDays = parseInt(settings.autoBackupInterval);
 
-      const settings = JSON.parse(row.value);
-      const intervalDays = parseInt(settings.autoBackupInterval);
+    if (!intervalDays || intervalDays <= 0) return;
 
-      if (!intervalDays || intervalDays <= 0) continue;
+    // Check last backup time
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith('kanban-backup-') && f.endsWith('.db'));
 
-      // Check last backup time for THIS user
-      const files = fs.readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith(`user-${userId}-backup-`) && f.endsWith('-auto.json'));
+    if (files.length > 0) {
+      const stats = files.map(f => fs.statSync(path.join(BACKUP_DIR, f)));
+      const latestBackup = Math.max(...stats.map(s => s.mtimeMs));
+      const now = Date.now();
+      const diffDays = (now - latestBackup) / (1000 * 60 * 60 * 24);
 
-      if (files.length > 0) {
-        const stats = files.map(f => fs.statSync(path.join(BACKUP_DIR, f)));
-        const latestBackup = Math.max(...stats.map(s => s.mtimeMs));
-        const diffDays = (Date.now() - latestBackup) / (1000 * 60 * 60 * 24);
-
-        if (diffDays < intervalDays) continue;
+      if (diffDays < intervalDays) {
+        // Not time yet
+        return;
       }
-
-      // Perform backup for this specific user (JSON Export)
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const backupName = `user-${userId}-backup-${timestamp}-auto.json`;
-      const backupPath = path.join(BACKUP_DIR, backupName);
-
-      const kvData = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ?").all(userId);
-      const trashData = db.prepare("SELECT key, value, deleted_at FROM trash_store WHERE user_id = ?").all(userId);
-
-      const exportData = {
-        version: '1.0.0',
-        userId: userId,
-        timestamp: Date.now(),
-        data: { kv_store: kvData, trash_store: trashData }
-      };
-
-      fs.writeFileSync(backupPath, JSON.stringify(exportData, null, 2));
-      console.log(`[Auto-Backup] User ${userId}: JSON backup created.`);
     }
+
+    // Perform backup
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupName = `kanban-backup-${timestamp}-auto.db`;
+    const backupPath = path.join(BACKUP_DIR, backupName);
+
+    console.log(`[Auto-Backup] Triggering scheduled backup: ${backupName}`);
+    await db.backup(backupPath);
+    console.log(`[Auto-Backup] Success.`);
   } catch (err) {
-    console.error("[Auto-Backup] Multi-user task failed:", err);
+    console.error("[Auto-Backup] Task failed:", err);
   }
 };
 
@@ -1185,27 +1080,22 @@ setInterval(runAutoBackup, 6 * 60 * 60 * 1000);
 // Also run once on startup (after a short delay to ensure everything is initialized)
 setTimeout(runAutoBackup, 10000);
 
-// Auto-cleanup task for trash (Multi-User)
+// Auto-cleanup task for trash
 const cleanupExpiredTrash = () => {
   if (!db) return;
   try {
-    const users = db.prepare("SELECT id FROM users").all();
+    // Get retention setting from DB, default to 3 days (3 * 24 * 60 * 60 * 1000)
+    let retentionMs = 3 * 24 * 60 * 60 * 1000;
+    const settingRow = db.prepare("SELECT value FROM kv_store WHERE key = 'trash_retention_days'").get();
+    if (settingRow) {
+      const days = parseInt(JSON.parse(settingRow.value));
+      if (!isNaN(days)) retentionMs = days * 24 * 60 * 60 * 1000;
+    }
 
-    for (const user of users) {
-      const userId = user.id;
-      let retentionMs = 3 * 24 * 60 * 60 * 1000;
-
-      const settingRow = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = 'trash_retention_days'").get(userId);
-      if (settingRow) {
-        const days = parseInt(JSON.parse(settingRow.value));
-        if (!isNaN(days)) retentionMs = days * 24 * 60 * 60 * 1000;
-      }
-
-      const expirationTime = Date.now() - retentionMs;
-      const info = db.prepare("DELETE FROM trash_store WHERE user_id = ? AND deleted_at < ?").run(userId, expirationTime);
-      if (info.changes > 0) {
-        console.log(`[Trash Cleanup] User ${userId}: Permanently removed ${info.changes} expired items.`);
-      }
+    const expirationTime = Date.now() - retentionMs;
+    const info = db.prepare("DELETE FROM trash_store WHERE deleted_at < ?").run(expirationTime);
+    if (info.changes > 0) {
+      console.log(`[Trash Cleanup] Permanently removed ${info.changes} expired items.`);
     }
   } catch (err) {
     console.error("[Trash Cleanup] Error:", err);
@@ -1230,14 +1120,11 @@ const DEFAULT_OLLAMA_HOST = rawOllamaHost.split(',')[0].trim();
 const getOllamaHost = (req) => {
   let host = DEFAULT_OLLAMA_HOST;
 
-  // SECURITY: 
-  // Allow custom client endpoint if:
-  // 1. We are in development mode (for local testing)
-  // 2. OR the user is authenticated (BYO-AI for logged-in users)
-  // This prevents anonymous SSRF attacks in production while keeping flexibility for users.
-  const clientEndpoint = req.headers['x-ollama-endpoint'];
-  if (clientEndpoint && (process.env.NODE_ENV !== 'production' || req.user)) {
-    host = clientEndpoint;
+  if (process.env.NODE_ENV !== 'production') {
+    const clientEndpoint = req.headers['x-ollama-endpoint'];
+    if (clientEndpoint) {
+      host = clientEndpoint;
+    }
   }
 
   // Ensure protocol exists
@@ -1262,19 +1149,8 @@ const getOllamaHost = (req) => {
 /**
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
- * Publicly accessible so status indicators work for all users (including guests).
  */
 app.get('/api/ai/models', async (req, res) => {
-  // Attempt to authenticate optionally to see if we can honor a custom x-ollama-endpoint
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (token) {
-    try {
-      const user = jwt.verify(token, JWT_SECRET);
-      req.user = user;
-    } catch (e) { /* ignore invalid tokens, proceed as guest */ }
-  }
-
   const ollamaHost = getOllamaHost(req);
   try {
     const controller = new AbortController();
@@ -1285,21 +1161,13 @@ app.get('/api/ai/models', async (req, res) => {
     });
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[AI Proxy] Ollama responded with ${response.status}: ${errorText}`);
-      throw new Error(`Ollama returned ${response.status}`);
-    }
+    if (!response.ok) throw new Error("Failed to fetch models from Ollama");
 
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    console.error(`[AI Proxy] Connection Error to ${ollamaHost}:`, error.message);
-    res.status(503).json({
-      error: "Ollama service is offline or unreachable.",
-      details: error.message,
-      target: ollamaHost
-    });
+    console.error("AI Models Fetch Error:", error);
+    res.status(503).json({ error: "Ollama service is offline or unreachable.", details: error.message });
   }
 });
 
@@ -1307,7 +1175,7 @@ app.get('/api/ai/models', async (req, res) => {
  * POST /api/ai/generate
  * Proxies request to local Ollama instance
  */
-app.post('/api/ai/generate', authenticateToken, async (req, res) => {
+app.post('/api/ai/generate', async (req, res) => {
   const { prompt, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
   const targetModel = model || "gemma3:4b";
@@ -1350,7 +1218,7 @@ app.post('/api/ai/generate', authenticateToken, async (req, res) => {
  * POST /api/ai/chat
  * Proxies chat request to local Ollama instance
  */
-app.post('/api/ai/chat', authenticateToken, async (req, res) => {
+app.post('/api/ai/chat', async (req, res) => {
   const { messages, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
   const targetModel = model || "gemma3:4b";

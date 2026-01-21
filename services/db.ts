@@ -61,12 +61,6 @@ const getTrashUrl = () => `${getApiBaseUrl()}/trash`;
 const getBackupUrl = () => `${getApiBaseUrl()}/backup`;
 const getGlobalTasksUrl = () => `${getApiBaseUrl()}/tasks/global`;
 
-const getAuthHeaders = () => {
-    if (typeof window === 'undefined') return {};
-    const token = window.localStorage.getItem('koge_auth_token');
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
-};
-
 /**
  * Helper utility for making API requests with built-in timeout and error handling.
  */
@@ -87,8 +81,7 @@ const apiAdapter = {
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache',
                     'Expires': '0',
-                    'ngrok-skip-browser-warning': 'true',
-                    ...getAuthHeaders()
+                    'ngrok-skip-browser-warning': 'true'
                 }
             });
             clearTimeout(id);
@@ -119,8 +112,7 @@ const apiAdapter = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true',
-                    ...getAuthHeaders()
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 body: JSON.stringify(data),
                 signal: controller.signal
@@ -150,8 +142,7 @@ const apiAdapter = {
             const response = await fetch(url.toString(), {
                 method: 'DELETE',
                 headers: {
-                    'ngrok-skip-browser-warning': 'true',
-                    ...getAuthHeaders()
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 signal: controller.signal
             });
@@ -177,8 +168,7 @@ const apiAdapter = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true',
-                    ...getAuthHeaders()
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 body: data ? JSON.stringify(data) : undefined,
                 signal: controller.signal
@@ -215,8 +205,7 @@ const apiAdapter = {
             const response = await fetch(url, {
                 method: 'DELETE',
                 headers: {
-                    'ngrok-skip-browser-warning': 'true',
-                    ...getAuthHeaders()
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 signal: controller.signal
             });
@@ -330,9 +319,9 @@ export const db = {
      * @param url - The API base URL to test.
      */
     testConnection: async (url: string): Promise<boolean> => {
-        const testUrl = url.endsWith('/api') ? `${url}/status` : `${url.replace(/\/+$/, '')}/api/status`;
-        const result = await apiAdapter.get<{ status: string }>(testUrl);
-        return result?.status === 'online';
+        const testUrl = url.endsWith('/api') ? `${url}/data/${PROJECTS_KEY}` : `${url.replace(/\/+$/, '')}/api/data/${PROJECTS_KEY}`;
+        const result = await apiAdapter.get(testUrl);
+        return result !== null;
     },
 
     // Trash Management
