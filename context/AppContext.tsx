@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Project, PrioritySettings, Priority, Task, Column, ProjectContext } from '../types';
+import { Project, PrioritySettings, Priority, Task, Column, ProjectContext, User } from '../types';
 import { db } from '../services/db';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -27,16 +27,28 @@ interface AppContextType {
     setIsChatOpen: (isOpen: boolean) => void;
     isAILoading: boolean;
     setIsAILoading: (isLoading: boolean) => void;
+    isOllamaOnline: boolean;
     currentContext: ProjectContext | null;
-    setCurrentContext: (context: ProjectContext | null) => void;
+    setCurrentContext: React.Dispatch<React.SetStateAction<ProjectContext | null>>;
     isSearchOpen: boolean;
     setIsSearchOpen: (isOpen: boolean) => void;
     boardRefreshTrigger: number;
     notifyBoardRefresh: () => void;
     showConnModal: boolean;
     setShowConnModal: (show: boolean) => void;
+    trashRetentionDays: number;
+    setTrashRetentionDays: (days: number) => void;
+    autoBackupInterval: number;
+    setAutoBackupInterval: (days: number) => void;
     confirm: (options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; confirmText?: string; cancelText?: string; onConfirm: () => void }) => void;
     alert: (options: { title: string; message: string; type?: 'danger' | 'warning' | 'info'; onConfirm?: () => void }) => void;
+    user: User | null;
+    isAuthenticated: boolean;
+    login: (u: string, p: string) => Promise<void>;
+    register: (u: string, e: string, p: string) => Promise<void>;
+    guestLogin: () => void;
+    logout: () => void;
+    deleteAccount: (userId: string | number) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -148,10 +160,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [isInitialized, setIsInitialized] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isAILoading, setIsAILoading] = useState(false);
+    const [isOllamaOnline, setIsOllamaOnline] = useState(false);
     const [currentContext, setCurrentContext] = useState<ProjectContext | null>(null);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [boardRefreshTrigger, setBoardRefreshTrigger] = useState(0);
     const [showConnModal, setShowConnModal] = useState(false);
+    const [trashRetentionDays, setTrashRetentionDaysState] = useState(3);
+    const [autoBackupInterval, setAutoBackupIntervalState] = useState(0);
+
+    // Auth State
+    const [user, setUser] = useState<User | null>(null);
+
+    const isAuthenticated = !!user;
+
+    const login = async (username, password) => {
+        const result = await db.auth.login(username, password) as any;
+        if (result && result.success) {
+            setUser({ ...result.user, token: result.token });
+            localStorage.setItem('koge_auth_token', result.token);
+            localStorage.setItem('koge_user_info', JSON.stringify(result.user));
+            // Important: Clear guest flag logic so db.ts switches to API mode
+            localStorage.removeItem('koge_is_guest');
+            // Reload page to ensure DB service picks up the change
+            window.location.reload();
+        } else {
+            throw new Error(result?.error || 'Login failed');
+        }
+    };
+
+    const register = async (username, email, password) => {
+        const result = await db.auth.register(username, email, password) as any;
+        if (result && result.success) {
+            setUser({ ...result.user, token: result.token });
+            localStorage.setItem('koge_auth_token', result.token);
+            localStorage.setItem('koge_user_info', JSON.stringify(result.user));
+            localStorage.removeItem('koge_is_guest');
+            window.location.reload();
+        } else {
+            throw new Error(result?.error || 'Registration failed');
+        }
+    };
+
+    const guestLogin = () => {
+        const guestUser = { id: 'guest', username: 'Guest', isGuest: true };
+        setUser(guestUser);
+        localStorage.removeItem('koge_auth_token');
+        localStorage.removeItem('koge_user_info');
+        localStorage.setItem('koge_is_guest', 'true');
+    };
+
+    const logout = () => {
+        setUser(null);
+        localStorage.removeItem('koge_auth_token');
+        localStorage.removeItem('koge_user_info');
+        localStorage.removeItem('koge_is_guest');
+        // Reload to clear state cleanly
+        window.location.href = '/';
+    };
+
+    const deleteAccount = async (userId: string | number) => {
+        try {
+            const result = await db.auth.deleteUser(userId) as any;
+            if (result && result.success) {
+                logout(); // Clear session if deleted
+            }
+        } catch (error: any) {
+            // If the server says user not found, it means the account is already gone (ghost session)
+            // We should still logout to clear the local state for the user.
+            if (error.message?.includes('User not found') || error.message?.includes('404')) {
+                logout();
+            } else {
+                throw error;
+            }
+        }
+    };
+
+    useEffect(() => {
+        const checkAuth = async () => {
+            const token = localStorage.getItem('koge_auth_token');
+            const userInfoStr = localStorage.getItem('koge_user_info');
+            const isGuest = localStorage.getItem('koge_is_guest');
+
+            if (token && userInfoStr) {
+                try {
+                    const userInfo = JSON.parse(userInfoStr);
+                    setUser({ ...userInfo, token });
+                    // Verify token with backend? For now assume valid or let backend reject requests
+                } catch (e) {
+                    localStorage.removeItem('koge_auth_token');
+                }
+            } else if (isGuest) {
+                setUser({ id: 'guest', username: 'Guest', isGuest: true });
+            }
+        };
+        checkAuth();
+    }, []);
 
     // Global Modal State
     const [modalConfig, setModalConfig] = useState<{
@@ -209,6 +312,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.setItem('koge_api_base_url', url);
     };
 
+    const setTrashRetentionDays = (days: number) => {
+        setTrashRetentionDaysState(days);
+        db.save('trash_retention_days', days);
+    };
+
+    const setAutoBackupInterval = (days: number) => {
+        setAutoBackupIntervalState(days);
+        // We save this into kanban_settings so the server can see it easily
+        db.save('kanban_settings', { ...prioritySettings, autoBackupInterval: days });
+    };
+
     const refreshProjects = async () => {
         const fetchedProjects = await db.getProjects();
         if (fetchedProjects) setProjects(fetchedProjects);
@@ -219,17 +333,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const response = await fetch('/api/ai/models', {
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-ollama-endpoint': ollamaEndpoint
+                    'x-ollama-endpoint': ollamaEndpoint,
+                    'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
                 }
             });
             if (!response.ok) {
                 setAiModels([]);
+                setIsOllamaOnline(false);
                 return [];
             }
             const data = await response.json();
             if (data && data.models && Array.isArray(data.models)) {
                 const modelNames = data.models.map((m: any) => m.name);
 
+                setIsOllamaOnline(true);
                 setAiModels(prev => {
                     if (JSON.stringify(prev) === JSON.stringify(modelNames)) return prev;
                     return modelNames;
@@ -246,10 +363,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
                 return modelNames;
             }
+            setIsOllamaOnline(false);
             setAiModels([]);
             return [];
         } catch (e) {
             console.error("Failed to fetch models:", e);
+            setIsOllamaOnline(false);
             setAiModels([]);
             return [];
         }
@@ -261,37 +380,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setIsAIEnabled(false);
             return false;
         } else {
-            // Note: We don't check for activeModel here anymore because ProjectList will handle the flow:
-            // Click -> Scan -> Popup -> Select -> Enable.
-            // This function now strictly just checks connectivity for the *currently selected* activeModel if any.
-
-            if (!activeModel) {
-                // If no model selected, we can't really "enable" fully, but we assume the caller handled the selection UI.
-                return false;
-            }
-
             // Check if Ollama is running before enabling
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-                const response = await fetch('/api/ai/generate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-ollama-endpoint': ollamaEndpoint
-                    },
-                    body: JSON.stringify({ prompt: "ping", model: activeModel })
-                });
-
-                clearTimeout(timeoutId);
-
-                if (response.ok) {
-                    setIsAIEnabled(true);
-                    return true;
-                } else {
-                    throw new Error("Ollama check failed");
+                const availableModels = await fetchModels();
+                if (availableModels.length === 0) {
+                    alert({
+                        title: 'Ollama Offline',
+                        message: 'Could not connect to Ollama. Please ensure Ollama is running (ollama serve) and you have at least one model downloaded.',
+                        type: 'warning'
+                    });
+                    return false;
                 }
+
+                if (!activeModel) {
+                    // Try to pick first available
+                    setActiveModel(availableModels[0]);
+                }
+
+                setIsAIEnabled(true);
+                return true;
             } catch (e) {
                 console.error("AI Enable Failed:", e);
                 return false;
@@ -336,7 +443,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-ollama-endpoint': ollamaEndpoint
+                    'x-ollama-endpoint': ollamaEndpoint,
+                    'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
                 },
                 body: JSON.stringify({ prompt: "ping", model: model })
             });
@@ -363,13 +471,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     useEffect(() => {
         const initApp = async () => {
             try {
-                const [fetchedProjects, fetchedSettings, fetchedAISettings] = await Promise.all([
+                const [fetchedProjects, fetchedSettings, fetchedAISettings, fetchedRetention] = await Promise.all([
                     db.getProjects(),
-                    db.getSettings(),
-                    db.getAISettings()
+                    db.getSettings() as Promise<any>,
+                    db.getAISettings(),
+                    db.get('trash_retention_days') as Promise<number | null>
                 ]);
 
-                if (fetchedSettings) setPrioritySettings(fetchedSettings);
+                if (fetchedSettings) {
+                    setPrioritySettings(fetchedSettings);
+                    if (fetchedSettings.autoBackupInterval !== undefined) {
+                        setAutoBackupIntervalState(fetchedSettings.autoBackupInterval);
+                    }
+                }
+                if (fetchedRetention !== null) setTrashRetentionDaysState(fetchedRetention);
 
                 let loadedActiveModel = '';
                 if (fetchedAISettings) {
@@ -383,15 +498,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 // AUTO-ACTIVATION LOGIC:
                 // 1. Fetch available models from Ollama
                 const availableModels = await fetchModels();
+                const isOnline = availableModels.length > 0;
 
-                // 2. If Ollama is active and has models
-                if (availableModels.length > 0) {
+                // 2. Synchronization
+                if (isOnline) {
                     const modelToUse = loadedActiveModel || availableModels[0];
-
                     if (availableModels.includes(modelToUse)) {
                         setActiveModel(modelToUse);
-                        setIsAIEnabled(true); // Automatically turn on if Ollama is ready
+                        // Only enable if it was previously enabled OR if it's the very first time (fetchedAISettings is null)
+                        if (fetchedAISettings === null || fetchedAISettings.enabled) {
+                            setIsAIEnabled(true);
+                        }
                     }
+                } else {
+                    // Ollama is offline or has no models, force AI off visually
+                    setIsAIEnabled(false);
                 }
 
 
@@ -431,8 +552,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [projects, appLoading, isInitialized]);
 
     useEffect(() => {
-        if (!appLoading && isInitialized) db.saveSettings(prioritySettings);
-    }, [prioritySettings, appLoading, isInitialized]);
+        if (!appLoading && isInitialized) {
+            db.save('kanban_settings', { ...prioritySettings, autoBackupInterval });
+        }
+    }, [prioritySettings, autoBackupInterval, appLoading, isInitialized]);
 
     useEffect(() => {
         if (!appLoading && isInitialized) {
@@ -446,7 +569,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [aiModels, activeModel, isAIEnabled, ollamaEndpoint, appLoading, isInitialized]);
 
     return (
-        <AppContext.Provider value={{ projects, setProjects, prioritySettings, setPrioritySettings, appLoading, refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel, fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint, setOllamaEndpoint, apiBaseUrl, setApiBaseUrl, isChatOpen, setIsChatOpen, isAILoading, setIsAILoading, currentContext, setCurrentContext, isSearchOpen, setIsSearchOpen, boardRefreshTrigger, notifyBoardRefresh, showConnModal, setShowConnModal, confirm, alert }}>
+        <AppContext.Provider value={{
+            projects, setProjects, prioritySettings, setPrioritySettings, appLoading,
+            refreshProjects, isAIEnabled, toggleAI, disableAI, aiModels, activeModel,
+            fetchModels, addAIModel, removeAIModel, setActiveAIModel, ollamaEndpoint,
+            setOllamaEndpoint, apiBaseUrl, setApiBaseUrl, isChatOpen, setIsChatOpen,
+            isAILoading, setIsAILoading, isOllamaOnline, currentContext, setCurrentContext,
+            isSearchOpen, setIsSearchOpen, boardRefreshTrigger, notifyBoardRefresh,
+            showConnModal, setShowConnModal, trashRetentionDays, setTrashRetentionDays,
+            autoBackupInterval, setAutoBackupInterval, confirm, alert,
+            user, isAuthenticated, login, register, guestLogin, logout, deleteAccount
+        }}>
             {children}
             <ConfirmModal
                 isOpen={modalConfig.isOpen}

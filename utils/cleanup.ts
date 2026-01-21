@@ -9,10 +9,10 @@ import { db } from '../services/db';
 export const dropProjectData = async (projectId: string) => {
     // We execute hard deletes for both the tasks and columns associated with this project.
     // This ensures no orphaned data remains in the database.
-    
+
     // We utilize the central db service which now exposes delete functionality
     await Promise.all([
-        db.deleteKey(`tasks_${projectId}`),
-        db.deleteKey(`columns_${projectId}`)
+        db.deleteKey(`tasks_${projectId}`, true),
+        db.deleteKey(`columns_${projectId}`, true)
     ]);
 };

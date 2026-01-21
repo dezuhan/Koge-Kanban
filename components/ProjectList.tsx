@@ -27,7 +27,7 @@ interface ProjectListProps {
  */
 const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, onAddProject, onEditProject, onDeleteProject }) => {
     const navigate = useNavigate();
-    const { isAIEnabled, toggleAI, isChatOpen, setIsChatOpen, setCurrentContext, prioritySettings, setPrioritySettings, alert: globalAlert, setIsSearchOpen, aiModels, apiBaseUrl } = useApp();
+    const { isAIEnabled, toggleAI, isChatOpen, setIsChatOpen, setCurrentContext, prioritySettings, setPrioritySettings, alert: globalAlert, setIsSearchOpen, aiModels, isOllamaOnline, apiBaseUrl } = useApp();
     const [globalTasks, setGlobalTasks] = useState<Task[]>([]);
     const [loadingTasks, setLoadingTasks] = useState(true);
     const [isTogglingAI, setIsTogglingAI] = useState(false);
@@ -164,7 +164,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         className="hidden lg:flex items-center flex-1 mx-12 bg-white border border-gray-200 rounded-xl px-4 h-12 cursor-pointer hover:border-blue-300 transition-all group shadow-sm"
                     >
                         <Search size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                        <span className="ml-3 text-sm text-gray-400 font-medium">Search ...</span>
+                        <span className="ml-3 text-sm text-gray-400 font-medium">Search     ...</span>
                         <div className="ml-auto flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
                             <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">Ctrl</kbd>
                             <kbd className="bg-gray-50 border border-gray-200 px-2 py-1 rounded text-[10px] font-mono text-gray-500 shadow-sm font-bold">K</kbd>
@@ -179,16 +179,35 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                             await toggleAI();
                             setIsTogglingAI(false);
                         }}
-                        className={`flex items-center gap-2 px-4 h-10 rounded-lg transition-all font-bold text-sm shrink-0 ${isAIEnabled
-                            ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                            : 'bg-white text-gray-400 border border-gray-200 hover:bg-gray-50'
+                        className={`flex items-center gap-2 px-4 h-10 rounded-lg transition-all font-bold text-sm shrink-0 border ${isAIEnabled
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-500/20'
+                            : !isOllamaOnline
+                                ? 'bg-gray-50 text-gray-400 border-gray-200 grayscale opacity-70'
+                                : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-50'
                             }`}
                         disabled={isTogglingAI}
-                        title={isAIEnabled ? "Disable AI Engine" : "Enable AI Engine"}
+                        title={!isOllamaOnline ? "Ollama is Offline (ollama serve)" : isAIEnabled ? "Disable AI Engine" : "Enable AI Engine"}
                     >
-                        {isTogglingAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                        {isTogglingAI ? (
+                            <Loader2 size={16} className="animate-spin" />
+                        ) : !isOllamaOnline ? (
+                            <div className="relative">
+                                <Sparkles size={16} />
+                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border border-white" />
+                            </div>
+                        ) : (
+                            <Sparkles size={16} />
+                        )}
                         <span>AI</span>
                         {isAIEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                    </button>
+
+                    <button
+                        onClick={() => navigate('/trash')}
+                        className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-rose-600 bg-white border border-gray-200 hover:border-rose-100 hover:bg-rose-50/30 rounded-lg transition-all shrink-0"
+                        title="Trash Bin"
+                    >
+                        <Trash2 size={20} />
                     </button>
 
                     <button
@@ -480,15 +499,25 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse" />
                                 <span className="text-[10px] font-black text-emerald-700 uppercase tracking-tight">
                                     {(() => {
-                                        if (!apiBaseUrl || apiBaseUrl.includes('localhost') || apiBaseUrl.includes('127.0.0.1')) {
-                                            return "RUN: LOCALHOST";
+                                        // 1. If user has set a custom URL in LocalStorage
+                                        const customUrl = localStorage.getItem('koge_api_base_url');
+                                        if (customUrl) {
+                                            try {
+                                                const url = new URL(customUrl.startsWith('http') ? customUrl : `http://${customUrl}`);
+                                                const host = url.hostname;
+                                                if (host === 'localhost' || host === '127.0.0.1') return "DB: LOCAL STORAGE";
+                                                return `DB: ${host.toUpperCase()}`;
+                                            } catch {
+                                                return "Save: LOCAL STORAGE (NOT SYNC)";
+                                            }
                                         }
-                                        try {
-                                            const domain = apiBaseUrl.replace(/^(?:https?:\/\/)?(?:www\.)?/i, "").split('/')[0];
-                                            return `RUN: ${domain.toUpperCase()}`;
-                                        } catch {
-                                            return "RUN: ACTIVE";
-                                        }
+
+                                        // 2. If running on local machine
+                                        const hostname = window.location.hostname;
+                                        if (hostname === 'localhost' || hostname === '127.0.0.1') return "Sync: LOCALHOST";
+
+                                        // 3. If running on a public domain
+                                        return `Sync: ${hostname.toUpperCase()}`;
                                     })()}
                                 </span>
                             </div>

@@ -25,13 +25,13 @@ const DashboardPage: React.FC = () => {
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
 
   const handleProjectSelect = (project: Project, taskId?: string) => {
-      // Navigate to project board
-      // If taskId is present, append it to URL
-      if (taskId) {
-          navigate(`/board/${project.id}/task/${taskId}`);
-      } else {
-          navigate(`/board/${project.id}`);
-      }
+    // Navigate to project board
+    // If taskId is present, append it to URL
+    if (taskId) {
+      navigate(`/board/${project.id}/task/${taskId}`);
+    } else {
+      navigate(`/board/${project.id}`);
+    }
   };
 
   const handleAddProject = () => {
@@ -46,56 +46,72 @@ const DashboardPage: React.FC = () => {
 
   const handleSaveProject = (projectData: Pick<Project, 'id' | 'name' | 'description'>) => {
     setProjects(prev => {
-        if (!prev) return null; // Should not happen with modal open but safety first
-        const exists = prev.some(p => p.id === projectData.id);
-        let updatedProjects;
-        if (exists) {
-            updatedProjects = prev.map(p => p.id === projectData.id ? { ...p, ...projectData } as Project : p);
-        } else {
-            const newProject: Project = {
-                ...projectData,
-                createdAt: Date.now()
-            } as Project;
-            updatedProjects = [...prev, newProject];
-            
-            // Init data for new project with TEMPLATE_COLUMNS
-             db.saveColumns(newProject.id, TEMPLATE_COLUMNS);
-             db.saveTasks(newProject.id, []);
-        }
-        return updatedProjects;
+      if (!prev) return null; // Should not happen with modal open but safety first
+      const exists = prev.some(p => p.id === projectData.id);
+      let updatedProjects;
+      if (exists) {
+        updatedProjects = prev.map(p => p.id === projectData.id ? { ...p, ...projectData } as Project : p);
+      } else {
+        const newProject: Project = {
+          ...projectData,
+          createdAt: Date.now()
+        } as Project;
+        updatedProjects = [...prev, newProject];
+
+        // Init data for new project with TEMPLATE_COLUMNS
+        db.saveColumns(newProject.id, TEMPLATE_COLUMNS);
+        db.saveTasks(newProject.id, []);
+      }
+      return updatedProjects;
     });
   };
 
-  const handleDeleteProject = () => {
-      if (!projectToDelete || !projects) return;
-      dropProjectData(projectToDelete);
-      setProjects(prev => prev ? prev.filter(p => p.id !== projectToDelete) : null);
-      setProjectToDelete(null);
-      setIsDeleteProjectModalOpen(false);
+  const handleDeleteProject = async () => {
+    if (!projectToDelete || !projects) return;
+    const projectObj = projects.find(p => p.id === projectToDelete);
+    if (projectObj) {
+      // Gather all board data before trashing (Bundling)
+      const [tasks, columns] = await Promise.all([
+        db.getTasks(projectToDelete),
+        db.getColumns(projectToDelete)
+      ]);
+
+      const bundle = {
+        project: projectObj,
+        tasks: tasks || [],
+        columns: columns || []
+      };
+
+      await db.trash.addItem(`board_bundle_${projectToDelete}`, bundle);
+    }
+    dropProjectData(projectToDelete);
+    setProjects(prev => prev ? prev.filter(p => p.id !== projectToDelete) : null);
+    setProjectToDelete(null);
+    setIsDeleteProjectModalOpen(false);
   };
 
   return (
     <>
-        <ProjectList 
-            projects={projects}
-            onSelectProject={handleProjectSelect}
-            onAddProject={handleAddProject}
-            onEditProject={handleEditProject}
-            onDeleteProject={(id) => { setProjectToDelete(id); setIsDeleteProjectModalOpen(true); }}
-        />
-        <ProjectModal
-            isOpen={isProjectModalOpen}
-            onClose={() => setIsProjectModalOpen(false)}
-            onSave={handleSaveProject}
-            initialProject={editingProject}
-        />
-        <ConfirmModal
-            isOpen={isDeleteProjectModalOpen}
-            onClose={() => setIsDeleteProjectModalOpen(false)}
-            onConfirm={handleDeleteProject}
-            title="Delete Project"
-            message="Are you sure you want to delete this project? All tasks inside it will be permanently deleted (Dropped)."
-        />
+      <ProjectList
+        projects={projects}
+        onSelectProject={handleProjectSelect}
+        onAddProject={handleAddProject}
+        onEditProject={handleEditProject}
+        onDeleteProject={(id) => { setProjectToDelete(id); setIsDeleteProjectModalOpen(true); }}
+      />
+      <ProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        onSave={handleSaveProject}
+        initialProject={editingProject}
+      />
+      <ConfirmModal
+        isOpen={isDeleteProjectModalOpen}
+        onClose={() => setIsDeleteProjectModalOpen(false)}
+        onConfirm={handleDeleteProject}
+        title="Delete Project"
+        message="Are you sure you want to delete this project? Tasks and columns inside it will be moved to the Trash Bin."
+      />
     </>
   );
 };

@@ -5,10 +5,11 @@ import { Outlet } from 'react-router-dom';
 import ChatBot from './ChatBot';
 import SearchModal from './SearchModal';
 import DatabaseConfigModal from './DatabaseConfigModal';
+import AuthModal from './AuthModal';
 import { db } from '../services/db';
 
 const Layout: React.FC = () => {
-  const { appLoading, isSearchOpen, setIsSearchOpen, showConnModal, apiBaseUrl, setApiBaseUrl } = useApp();
+  const { appLoading, isSearchOpen, setIsSearchOpen, showConnModal, apiBaseUrl, setApiBaseUrl, isAuthenticated } = useApp();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,6 +58,7 @@ const Layout: React.FC = () => {
       </div>
       <ChatBot />
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+      <AuthModal isOpen={!isAuthenticated} onClose={() => { }} />
       {/* <DatabaseConfigModal
         isOpen={showConnModal}
         initialUrl={apiBaseUrl || 'http://localhost:3000/api'}

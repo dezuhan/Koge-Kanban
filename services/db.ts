@@ -57,7 +57,15 @@ const getApiBaseUrl = () => {
 };
 
 const getApiUrl = () => `${getApiBaseUrl()}/data`;
+const getTrashUrl = () => `${getApiBaseUrl()}/trash`;
+const getBackupUrl = () => `${getApiBaseUrl()}/backup`;
 const getGlobalTasksUrl = () => `${getApiBaseUrl()}/tasks/global`;
+
+const getAuthHeaders = () => {
+    if (typeof window === 'undefined') return {};
+    const token = window.localStorage.getItem('koge_auth_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
 
 /**
  * Helper utility for making API requests with built-in timeout and error handling.
@@ -79,7 +87,8 @@ const apiAdapter = {
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache',
                     'Expires': '0',
-                    'ngrok-skip-browser-warning': 'true'
+                    'ngrok-skip-browser-warning': 'true',
+                    ...getAuthHeaders()
                 }
             });
             clearTimeout(id);
@@ -110,7 +119,8 @@ const apiAdapter = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
+                    'ngrok-skip-browser-warning': 'true',
+                    ...getAuthHeaders()
                 },
                 body: JSON.stringify(data),
                 signal: controller.signal
@@ -129,15 +139,19 @@ const apiAdapter = {
      * Generic DELETE request to remove data from the key-value store.
      * @param key - The key identifier for the data to delete.
      */
-    delete: async (key: string): Promise<void> => {
+    delete: async (key: string, permanent: boolean = false): Promise<void> => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), 5000);
 
         try {
-            const response = await fetch(`${getApiUrl()}/${key}`, {
+            const url = new URL(`${getApiUrl()}/${key}`);
+            if (permanent) url.searchParams.append('permanent', 'true');
+
+            const response = await fetch(url.toString(), {
                 method: 'DELETE',
                 headers: {
-                    'ngrok-skip-browser-warning': 'true'
+                    'ngrok-skip-browser-warning': 'true',
+                    ...getAuthHeaders()
                 },
                 signal: controller.signal
             });
@@ -150,6 +164,72 @@ const apiAdapter = {
             console.error(`Database delete failed for ${key}:`, e);
             throw e;
         }
+    },
+    /**
+     * Generic POST request without a specific key (for backup etc).
+     */
+    post: async <T>(url: string, data?: any): Promise<T | null> => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 10000); // Backups might take longer
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'ngrok-skip-browser-warning': 'true',
+                    ...getAuthHeaders()
+                },
+                body: data ? JSON.stringify(data) : undefined,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            if (!response.ok) {
+                let errorMessage = `API Error ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData && errorData.error) {
+                        errorMessage = errorData.error;
+                        if (errorData.details) errorMessage += ` (${errorData.details})`;
+                    }
+                } catch (e) {
+                    // Not a JSON error response, stick with default status message
+                }
+                throw new Error(errorMessage);
+            }
+            return await response.json();
+        } catch (e) {
+            clearTimeout(id);
+            console.error(`POST failed for ${url}:`, e);
+            throw e; // Throw so caller can handle specific message
+        }
+    },
+    /**
+     * Generic DELETE request with timeout and error handling.
+     */
+    deleteRaw: async (url: string): Promise<void> => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 5000);
+
+        try {
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'ngrok-skip-browser-warning': 'true',
+                    ...getAuthHeaders()
+                },
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `API Error: ${response.statusText}`);
+            }
+        } catch (e) {
+            clearTimeout(id);
+            console.error(`DELETE failed for ${url}:`, e);
+            throw e;
+        }
     }
 };
 
@@ -158,6 +238,10 @@ const apiAdapter = {
  * Provides methods to get and save projects, tasks, columns, and settings.
  */
 export const db = {
+    // Generic
+    get: apiAdapter.get,
+    save: apiAdapter.save,
+
     // Projects
     /**
      * Fetches the list of all projects.
@@ -239,15 +323,53 @@ export const db = {
      * Permanently deletes a specific key from the database.
      * @param key - The key to delete.
      */
-    deleteKey: async (key: string) => apiAdapter.delete(key),
+    deleteKey: async (key: string, permanent: boolean = false) => apiAdapter.delete(key, permanent),
 
     /**
      * Tests connection to a specific API URL.
      * @param url - The API base URL to test.
      */
     testConnection: async (url: string): Promise<boolean> => {
-        const testUrl = url.endsWith('/api') ? `${url}/data/${PROJECTS_KEY}` : `${url.replace(/\/+$/, '')}/api/data/${PROJECTS_KEY}`;
-        const result = await apiAdapter.get(testUrl);
-        return result !== null;
+        const testUrl = url.endsWith('/api') ? `${url}/status` : `${url.replace(/\/+$/, '')}/api/status`;
+        const result = await apiAdapter.get<{ status: string }>(testUrl);
+        return result?.status === 'online';
+    },
+
+    // Trash Management
+    trash: {
+        getItems: async (): Promise<any[]> => (await apiAdapter.get<any[]>(getTrashUrl())) || [],
+        addItem: async (key: string, value: any) => apiAdapter.post(`${getTrashUrl()}/item`, { key, value }),
+        restore: async (key: string, options?: { type: 'task' | 'column'; id: string }) =>
+            apiAdapter.post(`${getTrashUrl()}/restore/${key}`, options),
+        restoreBulk: async (keys: string[]) =>
+            apiAdapter.post(`${getTrashUrl()}/restore-bulk`, { keys }),
+        deletePermanent: async (key: string) => apiAdapter.deleteRaw(`${getTrashUrl()}/permanent/${key}`),
+        emptyTrash: async () => apiAdapter.deleteRaw(`${getTrashUrl()}/permanent/__all__`)
+    },
+
+    // Backup Management
+    backups: {
+        create: async () => apiAdapter.post(`${getApiBaseUrl()}/backup`),
+        getList: async () => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/backups`)) || [],
+        restore: async (filename: string) => apiAdapter.post(`${getApiBaseUrl()}/backups/restore`, { filename }),
+        delete: async (filename: string) => apiAdapter.deleteRaw(`${getApiBaseUrl()}/backups/${filename}`),
+        cleanupTemp: async () => apiAdapter.post(`${getApiBaseUrl()}/cleanup/temp`)
+    },
+
+    /**
+     * Wipes all project-related data. Use with caution.
+     */
+    resetData: async (options?: { includeBackups?: boolean }) => {
+        return apiAdapter.post(`${getApiBaseUrl()}/reset`, options);
+    },
+
+    // Auth Management
+    auth: {
+        login: async (username, password) =>
+            apiAdapter.post(`${getApiBaseUrl()}/auth/login`, { username, password }),
+        register: async (username, email, password) =>
+            apiAdapter.post(`${getApiBaseUrl()}/auth/register`, { username, email, password }),
+        deleteUser: async (userId: string | number) =>
+            apiAdapter.deleteRaw(`${getApiBaseUrl()}/auth/user/${userId}`)
     }
 };

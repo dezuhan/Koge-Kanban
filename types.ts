@@ -21,7 +21,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  status: string; 
+  status: string;
   priority: Priority;
   category: string;
   project: string;
@@ -64,4 +64,12 @@ export interface ProjectContext {
   projectName: string;
   tasks: Task[];
   columns: Column[];
+}
+
+export interface User {
+  id: number | string;
+  username: string;
+  email?: string;
+  token?: string;
+  isGuest?: boolean;
 }

@@ -126,9 +126,10 @@ dist/
 dist-ssr/
 *.local
 
-# SQLite
+# SQLite & Data
 kanban.db
 kanban.db-shm
 kanban.db-wal
 *.db
 *.db-journal
+db/
