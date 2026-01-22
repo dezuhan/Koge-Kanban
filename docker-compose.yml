@@ -1,30 +1,23 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: dockerfile
     ports:
       - "3000:3000"
     environment:
-      - DB_HOST=db
-      - DB_USER=root
-      - DB_PASSWORD=mysecretpassword
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_PATH=/app/db/kanban.db
       # If using Docker Desktop, use host.docker.internal to access Ollama on host
       # Linux users might need to use the host IP (e.g., 172.17.0.1)
-      - OLLAMA_HOST=http://host.docker.internal:11434 
-    depends_on:
-      - db
-    restart: always
-
-  db:
-    image: mariadb:10.6
-    environment:
-      - MARIADB_ROOT_PASSWORD=mysecretpassword
-      - MARIADB_DATABASE=koge_kanban
-    ports:
-      - "3306:3306"
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - JWT_SECRET=${JWT_SECRET:-please-change-me}
     volumes:
-      - mariadb_data:/var/lib/mysql
-    restart: always
+      - koge_data:/app/db
+    restart: unless-stopped
 
 volumes:
-  mariadb_data:
+  koge_data:
 
