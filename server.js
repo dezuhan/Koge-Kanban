@@ -1173,7 +1173,7 @@ app.get('/api/ai/models', async (req, res) => {
 app.post('/api/ai/generate', async (req, res) => {
   const { prompt, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
-  const targetModel = model || "gemma3:4b";
+  const targetModel = model || "qwen2.5:1.5b";
 
   try {
     const requestBody = {

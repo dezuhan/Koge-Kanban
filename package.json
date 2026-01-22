@@ -18,7 +18,6 @@
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.3",
     "express": "^4.22.1",
-    "helmet": "^8.1.0",
     "intro.js": "^7.2.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.378.0",
