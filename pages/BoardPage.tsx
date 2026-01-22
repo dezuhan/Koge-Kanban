@@ -504,8 +504,34 @@ const BoardPage: React.FC = () => {
 
       if (!response.ok) throw new Error("Failed to generate summary");
 
-      const data = await response.json();
-      setSummaryContent(data.response);
+      // Handle streaming response
+      let fullResponse = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              if (json.response) {
+                fullResponse += json.response;
+                setSummaryContent(fullResponse); // Update UI in real-time
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      setSummaryContent(fullResponse);
 
     } catch (error) {
       console.error("Summary Error:", error);

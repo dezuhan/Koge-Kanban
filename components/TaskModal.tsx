@@ -465,54 +465,78 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         throw new Error(err.error || "Failed to generate");
       }
 
-      const data = await response.json();
-      if (data.response) {
-        let cleanResponse = data.response;
+      // Handle streaming response
+      let fullResponse = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-        // Extract thinking process if available
-        const thinkMatch = cleanResponse.match(/<think>([\s\S]*?)<\/think>/);
-        if (thinkMatch) {
-          setAiThinking(thinkMatch[1].trim());
-          cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/, '').trim();
-        }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        // Extract JSON from markdown code block
-        const jsonMatch = cleanResponse.match(/```json\n([\s\S]*?)\n```/) ||
-          cleanResponse.match(/```([\s\S]*?)```/) ||
-          [null, cleanResponse];
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
 
-        const jsonStr = jsonMatch[1].trim();
-        const result = JSON.parse(jsonStr);
-
-        // Update fields
-        if (result.description) updateDescriptionWithHistory(result.description);
-        if (result.category) setCategory(result.category);
-        if (result.project) {
-          // Check if project exists, if not, create it
-          if (!projectOptions.includes(result.project)) {
-            await handleCreateProject(result.project);
-          }
-          setProject(result.project);
-        }
-        if (result.assignee) setAssignee(result.assignee);
-        if (result.priority) {
-          const p = result.priority.charAt(0).toUpperCase() + result.priority.slice(1).toLowerCase();
-          if (Object.values(Priority).includes(p as Priority)) {
-            setPriority(p as Priority);
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              if (json.response) {
+                fullResponse += json.response;
+                setAiThinking(fullResponse); // Update UI in real-time
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
           }
         }
-        if (result.dueDate) setDueDate(result.dueDate);
-        if (result.subTasks && Array.isArray(result.subTasks)) {
-          const newSubtasks = result.subTasks.map((st: any) => ({
-            id: crypto.randomUUID(),
-            title: st.title || st.name || st,
-            isCompleted: false
-          }));
-          setSubTasks(prev => [...prev, ...newSubtasks]);
-        }
-
-        setIsEditingDesc(true);
       }
+
+      let cleanResponse = fullResponse;
+
+      // Extract thinking process if available
+      const thinkMatch = cleanResponse.match(/<think>([\s\S]*?)<\/think>/);
+      if (thinkMatch) {
+        setAiThinking(thinkMatch[1].trim());
+        cleanResponse = cleanResponse.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+      }
+
+      // Extract JSON from markdown code block
+      const jsonMatch = cleanResponse.match(/```json\n([\s\S]*?)\n```/) ||
+        cleanResponse.match(/```([\s\S]*?)```/) ||
+        [null, cleanResponse];
+
+      const jsonStr = jsonMatch[1].trim();
+      const result = JSON.parse(jsonStr);
+
+      // Update fields
+      if (result.description) updateDescriptionWithHistory(result.description);
+      if (result.category) setCategory(result.category);
+      if (result.project) {
+        // Check if project exists, if not, create it
+        if (!projectOptions.includes(result.project)) {
+          await handleCreateProject(result.project);
+        }
+        setProject(result.project);
+      }
+      if (result.assignee) setAssignee(result.assignee);
+      if (result.priority) {
+        const p = result.priority.charAt(0).toUpperCase() + result.priority.slice(1).toLowerCase();
+        if (Object.values(Priority).includes(p as Priority)) {
+          setPriority(p as Priority);
+        }
+      }
+      if (result.dueDate) setDueDate(result.dueDate);
+      if (result.subTasks && Array.isArray(result.subTasks)) {
+        const newSubtasks = result.subTasks.map((st: any) => ({
+          id: crypto.randomUUID(),
+          title: st.title || st.name || st,
+          isCompleted: false
+        }));
+        setSubTasks(prev => [...prev, ...newSubtasks]);
+      }
+
+      setIsEditingDesc(true);
     } catch (error: any) {
       console.error("Auto-Fill Error:", error);
       globalAlert({
@@ -555,9 +579,35 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         throw new Error(err.error || "Failed to generate");
       }
 
-      const data = await response.json();
-      if (data.response) {
-        let newContent = data.response;
+      // Handle streaming response
+      let fullResponse = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              if (json.response) {
+                fullResponse += json.response;
+                setAiThinking(fullResponse); // Update UI in real-time
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      if (fullResponse) {
+        let newContent = fullResponse;
 
         // Extract thinking process if available
         const thinkMatch = newContent.match(/<think>([\s\S]*?)<\/think>/);
@@ -615,9 +665,35 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         throw new Error(err.error || "Failed to generate");
       }
 
-      const data = await response.json();
-      if (data.response) {
-        let newContent = data.response;
+      // Handle streaming response
+      let fullResponse = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(line.slice(6));
+              if (json.response) {
+                fullResponse += json.response;
+                setAiThinking(fullResponse); // Update UI in real-time
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      if (fullResponse) {
+        let newContent = fullResponse;
 
         // Extract thinking process if available
         const thinkMatch = newContent.match(/<think>([\s\S]*?)<\/think>/);

@@ -114,9 +114,34 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                 throw new Error(err.error || "Failed to generate");
             }
 
-            const data = await response.json();
-            if (data.response) {
-                const lines = data.response.split('\n').filter((l: string) => l.trim().length > 0);
+            // Handle streaming response
+            let fullResponse = '';
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split('\n');
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const json = JSON.parse(line.slice(6));
+                            if (json.response) {
+                                fullResponse += json.response;
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    }
+                }
+            }
+
+            if (fullResponse) {
+                const lines = fullResponse.split('\n').filter((l: string) => l.trim().length > 0);
                 const newItems = lines.map((line: string) => ({
                     id: crypto.randomUUID(),
                     title: line.replace(/^[-*•\d\.]+\s+/, '').trim(), // Clean potential bullets

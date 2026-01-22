@@ -1197,7 +1197,7 @@ app.get('/api/ai/models', async (req, res) => {
 
 /**
  * POST /api/ai/generate
- * Proxies request to local Ollama instance
+ * Proxies request to local Ollama instance with streaming support
  */
 app.post('/api/ai/generate', async (req, res) => {
   const { prompt, model, options } = req.body;
@@ -1208,7 +1208,7 @@ app.post('/api/ai/generate', async (req, res) => {
     const requestBody = {
       model: targetModel,
       prompt: prompt,
-      stream: false
+      stream: true  // Enable streaming
     };
 
     if (options) {
@@ -1229,8 +1229,49 @@ app.post('/api/ai/generate', async (req, res) => {
       });
     }
 
-    const data = await ollamaRes.json();
-    res.json({ response: data.response });
+    // Set streaming headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Stream response from Ollama line by line
+    const reader = ollamaRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep last incomplete line in buffer
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const json = JSON.parse(line);
+              // Send each chunk as SSE
+              res.write(`data: ${JSON.stringify({ 
+                response: json.response, 
+                done: json.done 
+              })}\n\n`);
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // Send final close signal
+    res.write('data: {"done": true}\n\n');
+    res.end();
 
   } catch (error) {
     console.error("AI Generation Error:", error.message);
