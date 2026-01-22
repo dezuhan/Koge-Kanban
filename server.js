@@ -1178,7 +1178,7 @@ app.get('/api/ai/models', async (req, res) => {
   const ollamaHost = getOllamaHost(req);
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     const response = await fetch(`${ollamaHost}/api/tags`, {
       signal: controller.signal
