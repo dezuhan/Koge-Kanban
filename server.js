@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
-import helmet from 'helmet';
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -13,18 +12,6 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Security Middleware
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // React scripts might need unsafe-inline/eval in dev
-      imgSrc: ["'self'", "data:", "blob:"],
-      connectSrc: ["'self'", process.env.OLLAMA_HOST || "http://127.0.0.1:11434"],
-    },
-  },
-}));
 
 app.use(express.json({ limit: '10mb' })); // Limit payload size
 
