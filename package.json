@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"npm:server\" \"npm:client\"",
     "client": "vite",
-    "server": "node server.js",
+    "server": "node server-2.js",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js"

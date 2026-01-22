@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Lock, Mail, ArrowRight, ShieldCheck, Ghost, LogIn, UserPlus, Loader2, Globe } from 'lucide-react';
+import { User, Lock, Mail, ArrowRight, ShieldCheck, Ghost, LogIn, UserPlus, Loader2, Globe, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 interface AuthModalProps {
@@ -107,6 +107,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         {mode === 'login' && "Enter your credentials to access your secure workspace."}
                         {mode === 'signup' && "Set up your secure profile to sync your tasks across devices."}
                     </p>
+
+                    {/* AI limitation notice */}
+                    <div className="mb-6 px-4 py-3 bg-amber-50 border border-amber-100 text-amber-700 text-xs font-semibold rounded-xl flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        AI assistant only works with a local Ollama instance. Cloud deployments will disable AI features.
+                    </div>
 
                     {/* ERROR ALERT */}
                     {error && (
