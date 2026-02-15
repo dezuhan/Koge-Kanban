@@ -1,110 +1,104 @@
-<img width="1500" height="900" alt="Koge Kanban Thumbnail" src="https://github.com/user-attachments/assets/5a7e69bc-0358-46d3-bdae-e85461daa030" />
-
 # Koge Kanban
 
-A powerful, secure, and streamlined Kanban board featuring multi-user support, user data isolation, and integrated AI assistant via Ollama. Built with React and Node.js, using SQLite for local-first efficiency.
+Koge Kanban is a trello alternatives, fast, secure, and AI-powered task manager. It blends personal privacy with smart automation to keep your workflow smooth, whether you're working locally or on a server.
 
-## Key Features
+## Core feature
 
-*   👥 **Multi-User System**: Full authentication (Login/Register) with secure JWT tokens.
-*   🔒 **Data Isolation**: Each user gets their own private workspace, boards, and tasks.
-*   🛡️ **Modern Security**: Isolated user data, protected AI endpoints, and secure JWT-based sessions.
-*   🤖 **Integrated AI Assistant**: 
-    *   **Auto-Fill**: AI can generate task descriptions, categories, and subtasks.
-    *   **Chat Ops**: Create, update, and manage tasks via natural language chat.
-    *   **Auto-Split**: Automatically split complex tasks into detailed subtasks.
-*   💾 **Secure Backup & Restore**: Export/Import your data as encrypted-friendly JSON files, isolated per user.
-*   ✨ **Rich Aesthetics**: Modern UI with glassmorphism, smooth animations, and responsive design.
-*   🚀 **Self-Updating Backend**: The `server.js` can automatically sync with the latest version from GitHub.
+- **Built-in AI Assistant**: Automatically generate task details, split complex tasks, or manage your board via chat.
+- **Strict Privacy**: Full multi-user support with isolated workspaces ensures your data stays yours.
+- **Kanban & Table Views**: Toggle between visual boards and structured tables in a single click.
+- **Fast Global Search**: Find any task instantly with powerful search and filtering across all projects.
+- **Hybrid Support**: Run your database locally while using a public frontend for the best of both worlds.
+- **Rich Task Content**: Full Markdown support and media attachments for detailed documentation.
+- **Easy Portability**: Export and import your data anytime to avoid vendor lock-in.
 
-## Prerequisites
+## Requirements
 
-*   **Node.js**: Version 20.x or higher.
-*   **Ollama**: Required for AI features ([ollama.com](https://ollama.com/)).
-*   **SQLite**: Handled automatically via `better-sqlite3` (no setup required).
+To run Koge Kanban smoothly, make sure you have:
+- **Node.js**: Version 20 or higher.
+- **Ollama**: If you want to use the AI features (get it at [ollama.com](https://ollama.com)).
+- **Docker**: For those who prefer running everything in a container.
 
-## Quick Start
+## Getting started
 
-1.  **Clone & Install**:
-    ```bash
-    git clone https://github.com/dezuhan/Koge-Kanban.git
-    cd Koge-Kanban
-    npm install
-    ```
+### 1. Clone repo
+```bash
+git clone https://github.com/dezuhan/Koge-Kanban.git
+cd Koge-Kanban
+```
 
-2.  **Environment Setup**:
-    Copy `.env.example` to `.env` and configure your keys:
-    ```bash
-    cp .env.example .env
-    ```
-    *Note: Make sure to generate a secure `JWT_SECRET`.*
+### 2. Install dependencies
+```bash
+npm install
+```
 
-3.  **Run Development**:
-    ```bash
-    npm run dev
-    ```
-    Access at `http://localhost:5173`.
+### 3. Setup your environment
+Copy the example file and add your own keys:
+```bash
+cp .env.example .env
+```
+*Tip: Make sure to set a strong `JWT_SECRET` in your `.env` file to keep your sessions secure.*
 
-## Deployment Options
+### 4. Let's go!
+```bash
+npm run dev
+```
+Open `http://localhost:5173` in your browser and you're ready to roll.
 
-### 1. Fully Local
-Run everything on your machine. All data stays in the `db/kanban.db` file.
+## Docker
 
-### 2. Hybrid Mode (Remote Frontend + Local Gateway)
-Use the hosted frontend (e.g., [koge-kanban.vercel.app](https://koge-kanban.vercel.app)) while keeping your data securely on your own local machine.
+### Build your image
+```bash
+docker build -t koge-kanban .
+```
 
----
+### Run with Docker Compose
+```bash
+docker compose up -d
+```
 
-## ⚡ Quick Server Setup (No Clone Needed)
-If you only want to host your data locally and use a public frontend, follow these steps:
+## Hybrid Setup (Frontend-less)
 
-1.  **Prepare Folder**:
-    ```powershell
-    mkdir koge-server; cd koge-server
-    ```
-2.  **Initialize & Install**:
-    ```powershell
-    npm init -y
-    npm pkg set type="module"
-    npm install express better-sqlite3 cors dotenv helmet bcryptjs jsonwebtoken
-    ```
-3.  **Get Server File**:
-    Download `server.js` from the [official repo](https://raw.githubusercontent.com/dezuhan/Koge-Kanban/main/server.js).
-4.  **Configure**:
-    Create a `.env` file with your `JWT_SECRET` and `ALLOWED_ORIGINS`.
-5.  **Run**:
-    ```bash
-    node server.js
-    ```
-6.  **Connect**: Open the public frontend and enter `http://localhost:3000` in the **Database Configuration** settings.
+Use the hosted frontend at [demo-koge-kanban.dezuhan.my.id](https://demo-koge-kanban.dezuhan.my.id) while keeping your data private on your local machine.
 
----
+### 1. Simple Server Setup
+You don't need the whole repo. Just create a folder and get the essential files:
+```bash
+mkdir koge-server; cd koge-server
+npm init -y
+npm pkg set type="module"
+npm install express@4 better-sqlite3 cors dotenv helmet bcryptjs jsonwebtoken
+```
 
-## Security & Privacy (v3.0+)
+### 2. Download server.js
+Download only the latest `server.js` from this repository and place it in your folder.
 
-The latest version implements strict security protocols:
--   **User Scoping**: Every database query is filtered by `user_id`.
--   **JWT Protection**: All sensitive API routes (AI, Backups, Data) require a valid token.
--   **No Plain-Text Passwords**: Passwords are hashed using `bcryptjs`.
--   **Auto-Cleanup**: Expired trash and old logs are automatically cleared per user settings.
+### 3. Run and Connect
+Set up your `.env` (add your `JWT_SECRET`), then run:
+```bash
+node server.js
+```
+Open **[demo-koge-kanban.dezuhan.my.id](https://demo-koge-kanban.dezuhan.my.id)**, go to **Settings > Database Configuration**, and enter your local IP (e.g., `http://localhost:3000`).
 
-## Configuration (.env)
+## Configuration guide
 
-| Variable | Description | Default |
+You can tweak how Koge Kanban works by editing the `.env` file:
+
+| Variable | What it does | Default |
 | :--- | :--- | :--- |
-| `DB_PATH` | Path to SQLite database file | `db/kanban.db` |
-| `JWT_SECRET` | Secret key for signing tokens | *Required* |
-| `ALLOWED_ORIGINS` | CORS whitelist (comma separated) | `http://localhost:5173` |
-| `OLLAMA_HOST` | URL for the Ollama API | `http://127.0.0.1:11434` |
-| `PORT` | Backend server port | `3000` |
+| `PORT` | The port the backend runs on | `3000` |
+| `DB_PATH` | Where your database file is saved | `db/kanban.db` |
+| `JWT_SECRET` | Used to secure your login sessions | *Required* |
+| `ALLOWED_ORIGINS` | Which websites can talk to your backend | `http://localhost:5173` |
+| `OLLAMA_HOST` | Where the AI engine is running | `http://127.0.0.1:11434` |
 
-## AI Assistant Usage
+## Setting up the AI (Ollama)
 
-The ChatBot (bottom right) understands commands like:
--   `create a task to fix the navbar in the Web Project`
--   `list all urgent tasks`
--   `elaborate on task "Database Setup"`
--   `@split`: Triggers the AI to break down the current task into subtasks.
+Koge Kanban works great with the **Qwen 2.5 3B** model. Once you have Ollama installed, just run:
+```bash
+ollama pull qwen2.5:3b
+```
+The app will automatically use this model to help you manage your tasks. Keep using low parameter model to make it faster (under 8B parameters). AI Feature only works on local (not working on demo-koge-kanban.dezuhan.my.id)
 
 ---
-Built with ❤️ by [Dezuhan](https://github.com/dezuhan)
+Built with passion by [Dezuhan](https://github.com/dezuhan).

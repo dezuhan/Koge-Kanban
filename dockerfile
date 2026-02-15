@@ -1,5 +1,5 @@
 # Stage 1: Build the React Application
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -16,9 +16,12 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Setup the Node.js Server
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Install build dependencies for better-sqlite3
+RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY package*.json ./
