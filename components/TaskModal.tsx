@@ -697,7 +697,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   type="button"
                   onClick={handleAutoFill}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm ${isAIEnabled
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-90'
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                     }`}
                   disabled={isAILoading || (isAIEnabled && !title)}

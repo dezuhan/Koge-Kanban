@@ -5,11 +5,20 @@ export default async function handler(req, res) {
 
   const { prompt, model, options } = req.body;
   // SECURITY FIX: Use environment variable for Ollama host
-  const ollamaHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-  const cleanHost = ollamaHost.endsWith('/') ? ollamaHost.slice(0, -1) : ollamaHost;
+  const serverHost = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+  const clientHost = req.headers['x-ollama-endpoint'];
 
-  const targetModel = model || "gemma3:4b";
-  
+  // Allow override in dev or if explicitly allowed
+  let ollamaHost = serverHost;
+  if (clientHost && (process.env.NODE_ENV !== 'production' || process.env.ALLOW_CLIENT_OLLAMA_HOST === 'true')) {
+    ollamaHost = clientHost;
+  }
+
+  // Ensure host doesn't have trailing slash and has protocol
+  const cleanHost = ollamaHost.startsWith('http') ? ollamaHost.replace(/\/+$/, '') : `http://${ollamaHost.replace(/\/+$/, '')}`;
+
+  const targetModel = model || "qwen2.5:3b";
+
   try {
     const requestBody = {
       model: targetModel,
@@ -26,10 +35,10 @@ export default async function handler(req, res) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
     });
-    
+
     if (!ollamaRes.ok) {
       const errorText = await ollamaRes.text();
-      return res.status(ollamaRes.status).json({ 
+      return res.status(ollamaRes.status).json({
         error: `Ollama error: ${ollamaRes.statusText}`,
         details: errorText
       });

@@ -35,7 +35,7 @@ const DatabaseConfigModal: React.FC<DatabaseConfigModalProps> = ({
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
             <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in slide-in-from-bottom-8 duration-500">
                 {/* Header with blue gradient */}
-                <div className="bg-gradient-to-br from-blue-600 to-indigo-700 h-40 flex items-center justify-center relative overflow-hidden">
+                <div className="bg-blue-600 h-40 flex items-center justify-center relative overflow-hidden">
                     {/* Subtle pattern overlay */}
                     <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 

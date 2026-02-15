@@ -1118,13 +1118,17 @@ const DEFAULT_OLLAMA_HOST = rawOllamaHost.split(',')[0].trim();
  * In development, we allow the client to specify the endpoint for flexibility.
  */
 const getOllamaHost = (req) => {
-  let host = DEFAULT_OLLAMA_HOST;
+  // Priority: 
+  // 1. Client header (if explicit allow or dev mode)
+  // 2. Server env var OLLAMA_HOST
+  // 3. Localhost default
 
-  if (process.env.NODE_ENV !== 'production') {
-    const clientEndpoint = req.headers['x-ollama-endpoint'];
-    if (clientEndpoint) {
-      host = clientEndpoint;
-    }
+  let host = DEFAULT_OLLAMA_HOST;
+  const clientEndpoint = req.headers['x-ollama-endpoint'];
+  const allowClientOverride = process.env.ALLOW_CLIENT_OLLAMA_HOST === 'true' || process.env.NODE_ENV !== 'production';
+
+  if (allowClientOverride && clientEndpoint) {
+    host = clientEndpoint;
   }
 
   // Ensure protocol exists
@@ -1132,14 +1136,19 @@ const getOllamaHost = (req) => {
     host = `http://${host}`;
   }
 
-  // Handle missing port for local addresses (default to 11434 for Ollama)
-  // We check if there's no colon after the protocol part (e.g., http://localhost has no second colon)
-  const protocolPart = host.startsWith('https') ? 8 : 7;
-  if (host && !host.slice(protocolPart).includes(':')) {
-    const hostname = host.slice(protocolPart).split('/')[0];
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
-      host = host.replace(hostname, `${hostname}:11434`);
+  // Handle missing port ONLY for local addresses (default to 11434 for Ollama)
+  try {
+    const url = new URL(host);
+    const isLocal = ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(url.hostname);
+
+    if (isLocal && !url.port) {
+      if (url.hostname === 'localhost') host = host.replace('localhost', 'localhost:11434');
+      else if (url.hostname === '127.0.0.1') host = host.replace('127.0.0.1', '127.0.0.1:11434');
+      else if (url.hostname === '0.0.0.0') host = host.replace('0.0.0.0', '0.0.0.0:11434');
     }
+  } catch (e) {
+    // If URL is invalid, don't try to be clever with ports
+    console.warn(`[AI] Invalid Ollama Host format: ${host}`);
   }
 
   // Handle trailing slash
@@ -1178,7 +1187,7 @@ app.get('/api/ai/models', async (req, res) => {
 app.post('/api/ai/generate', async (req, res) => {
   const { prompt, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
-  const targetModel = model || "gemma3:4b";
+  const targetModel = model || "qwen2.5:3b";
 
   try {
     const requestBody = {
@@ -1221,7 +1230,7 @@ app.post('/api/ai/generate', async (req, res) => {
 app.post('/api/ai/chat', async (req, res) => {
   const { messages, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
-  const targetModel = model || "gemma3:4b";
+  const targetModel = model || "qwen2.5:3b";
 
   try {
     const requestBody = {

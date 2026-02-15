@@ -11,13 +11,13 @@ interface SummaryModalProps {
   projectName: string;
 }
 
-const SummaryModal: React.FC<SummaryModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  loading, 
-  content, 
+const SummaryModal: React.FC<SummaryModalProps> = ({
+  isOpen,
+  onClose,
+  loading,
+  content,
   onRefresh,
-  projectName 
+  projectName
 }) => {
   if (!isOpen) return null;
 
@@ -40,14 +40,14 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4 animate-fade-in">
       <div className="bg-white md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:max-w-2xl overflow-hidden flex flex-col md:max-h-[85vh]">
         {/* Header */}
-        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gradient-to-r from-blue-50 to-white">
+        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-blue-50">
           <div className="flex items-center gap-3">
             <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
-                <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
             </div>
             <div>
-                <h2 className="text-lg font-bold text-gray-800">Project Context Summary</h2>
-                <p className="text-xs text-gray-500">{projectName}</p>
+              <h2 className="text-lg font-bold text-gray-800">Project Context Summary</h2>
+              <p className="text-xs text-gray-500">{projectName}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
@@ -75,24 +75,24 @@ const SummaryModal: React.FC<SummaryModalProps> = ({
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-100 bg-white flex justify-between items-center">
-            <button 
-                onClick={handleDownload}
-                disabled={loading || !content}
-                className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
-                title="Download as Markdown"
-            >
-                <Download size={16} />
-                <span className="hidden sm:inline">Download</span>
-            </button>
+          <button
+            onClick={handleDownload}
+            disabled={loading || !content}
+            className="flex items-center gap-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
+            title="Download as Markdown"
+          >
+            <Download size={16} />
+            <span className="hidden sm:inline">Download</span>
+          </button>
 
-            <button 
-                onClick={onRefresh} 
-                disabled={loading}
-                className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50"
-                title="Regenerate Summary"
-            >
-                {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
-            </button>
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50"
+            title="Regenerate Summary"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+          </button>
         </div>
       </div>
     </div>

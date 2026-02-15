@@ -85,7 +85,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in slide-in-from-bottom-8 duration-500 relative">
 
                 {/* Decorative Background - Changed to Blue */}
-                <div className="absolute top-0 left-0 w-full h-48 bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-700 rounded-b-[50%] scale-x-150 translate-y-[-50%] z-0" />
+                <div className="absolute top-0 left-0 w-full h-48 bg-blue-600 rounded-b-[50%] scale-x-150 translate-y-[-50%] z-0" />
 
                 <div className="relative z-10 p-8 pt-12">
                     <div className="flex justify-center mb-6">
