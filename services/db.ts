@@ -1,4 +1,5 @@
 import { Task, Column, PrioritySettings, Project } from '../types';
+import { io, Socket } from 'socket.io-client';
 
 const PROJECTS_KEY = 'kanban_projects';
 const SETTINGS_KEY = 'kanban_settings';
@@ -61,6 +62,23 @@ const getTrashUrl = () => `${getApiBaseUrl()}/trash`;
 const getBackupUrl = () => `${getApiBaseUrl()}/backup`;
 const getGlobalTasksUrl = () => `${getApiBaseUrl()}/tasks/global`;
 
+const getAuthHeaders = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('koge_auth_token') : null;
+    const isGuest = typeof window !== 'undefined' ? localStorage.getItem('koge_is_guest') : null;
+
+    const headers: Record<string, string> = {
+        'ngrok-skip-browser-warning': 'true'
+    };
+
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    } else if (isGuest === 'true') {
+        headers['x-is-guest'] = 'true';
+    }
+
+    return headers;
+};
+
 /**
  * Helper utility for making API requests with built-in timeout and error handling.
  */
@@ -78,10 +96,10 @@ const apiAdapter = {
             const response = await fetch(url, {
                 signal: controller.signal,
                 headers: {
+                    ...getAuthHeaders(),
                     'Cache-Control': 'no-cache, no-store, must-revalidate',
                     'Pragma': 'no-cache',
-                    'Expires': '0',
-                    'ngrok-skip-browser-warning': 'true'
+                    'Expires': '0'
                 }
             });
             clearTimeout(id);
@@ -98,6 +116,40 @@ const apiAdapter = {
             return null;
         }
     },
+    patch: async <T>(url: string, data?: any): Promise<T | null> => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 10000);
+
+        try {
+            const response = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    ...getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: data ? JSON.stringify(data) : undefined,
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            if (!response.ok) {
+                let errorMessage = `API Error ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData && errorData.error) {
+                        errorMessage = errorData.error;
+                    } else if (errorData && errorData.message) {
+                        errorMessage = errorData.message;
+                    }
+                } catch (e) { /* ignore */ }
+                throw new Error(errorMessage);
+            }
+            return await response.json();
+        } catch (e) {
+            clearTimeout(id);
+            console.error(`PATCH failed for ${url}:`, e);
+            throw e;
+        }
+    },
     /**
      * Generic POST request to save data to the key-value store.
      * @param key - The key identifier for the data.
@@ -111,8 +163,8 @@ const apiAdapter = {
             const response = await fetch(`${getApiUrl()}/${key}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
+                    ...getAuthHeaders(),
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(data),
                 signal: controller.signal
@@ -141,9 +193,7 @@ const apiAdapter = {
 
             const response = await fetch(url.toString(), {
                 method: 'DELETE',
-                headers: {
-                    'ngrok-skip-browser-warning': 'true'
-                },
+                headers: getAuthHeaders(),
                 signal: controller.signal
             });
             clearTimeout(id);
@@ -167,8 +217,8 @@ const apiAdapter = {
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
+                    ...getAuthHeaders(),
+                    'Content-Type': 'application/json'
                 },
                 body: data ? JSON.stringify(data) : undefined,
                 signal: controller.signal
@@ -204,9 +254,7 @@ const apiAdapter = {
         try {
             const response = await fetch(url, {
                 method: 'DELETE',
-                headers: {
-                    'ngrok-skip-browser-warning': 'true'
-                },
+                headers: getAuthHeaders(),
                 signal: controller.signal
             });
             clearTimeout(id);
@@ -319,9 +367,9 @@ export const db = {
      * @param url - The API base URL to test.
      */
     testConnection: async (url: string): Promise<boolean> => {
-        const testUrl = url.endsWith('/api') ? `${url}/data/${PROJECTS_KEY}` : `${url.replace(/\/+$/, '')}/api/data/${PROJECTS_KEY}`;
-        const result = await apiAdapter.get(testUrl);
-        return result !== null;
+        const testUrl = url.endsWith('/api') ? `${url}/health` : `${url.replace(/\/+$/, '')}/api/health`;
+        const result = await apiAdapter.get<any>(testUrl);
+        return result !== null && result.status === 'ok';
     },
 
     // Trash Management
@@ -360,5 +408,80 @@ export const db = {
             apiAdapter.post(`${getApiBaseUrl()}/auth/register`, { username, email, password }),
         deleteUser: async (userId: string | number) =>
             apiAdapter.deleteRaw(`${getApiBaseUrl()}/auth/user/${userId}`)
+    },
+
+    // Notifications
+    notifications: {
+        getAll: async () => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/notifications`)) || [],
+        markAsRead: async (id: number | string) => apiAdapter.post(`${getApiBaseUrl()}/notifications/${id}/read`),
+        delete: async (id: number | string) => apiAdapter.deleteRaw(`${getApiBaseUrl()}/notifications/${id}`),
+        clearAll: async () => apiAdapter.deleteRaw(`${getApiBaseUrl()}/notifications/clear-all`)
+    },
+
+    // User Management
+    users: {
+        search: async (query: string) => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/users/search?q=${query}`)) || []
+    },
+
+    // Sharing Management
+    sharing: {
+        shareProject: async (projectId: string, userId: number, permissions: string = 'editor') =>
+            apiAdapter.post(`${getApiBaseUrl()}/project/${projectId}/share`, { userId, permissions }),
+        getMembers: async (projectId: string) => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/project/${projectId}/members`)) || [],
+        removeMember: async (projectId: string, userId: number) =>
+            apiAdapter.deleteRaw(`${getApiBaseUrl()}/project/${projectId}/share/${userId}`),
+        updateMemberPermission: async (projectId: string, userId: number, permissions: string) =>
+            apiAdapter.patch(`${getApiBaseUrl()}/project/${projectId}/share/${userId}`, { permissions })
+    },
+
+    getHealth: async () => {
+        try {
+            const res = await fetch(`${getApiBaseUrl()}/health`);
+            if (!res.ok) return null;
+            return await res.json();
+        } catch (e) {
+            return null;
+        }
+    },
+
+    // Real-time Support
+    socket: null as any,
+    initSocket: () => {
+        if (db.socket && db.socket.connected) return db.socket;
+
+        const baseUrl = getApiBaseUrl().replace('/api', '');
+        const token = typeof window !== 'undefined' ? localStorage.getItem('koge_auth_token') : null;
+        const isGuest = typeof window !== 'undefined' ? localStorage.getItem('koge_is_guest') : null;
+
+        db.socket = io(baseUrl, {
+            auth: { token },
+            extraHeaders: isGuest === 'true' ? { 'x-is-guest': 'true' } : {}
+        });
+
+        return db.socket;
+    },
+    disconnectSocket: () => {
+        if (db.socket) {
+            db.socket.disconnect();
+            db.socket = null;
+        }
+    },
+    joinProject: (projectId: string) => {
+        const s = db.initSocket();
+        s.emit('join_project', projectId);
+    },
+    joinUser: (userId: number | string) => {
+        const s = db.initSocket();
+        s.emit('join_user', userId);
+    },
+    onDataUpdate: (callback: (data: { key: string; senderId?: number | string }) => void) => {
+        const s = db.initSocket();
+        s.on('data_updated', callback);
+        return () => s.off('data_updated', callback);
+    },
+    onNotification: (callback: (notif: { type: string; message: string }) => void) => {
+        const s = db.initSocket();
+        s.on('new_notification', callback);
+        return () => s.off('new_notification', callback);
     }
 };

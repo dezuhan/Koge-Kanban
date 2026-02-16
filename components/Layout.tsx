@@ -6,10 +6,15 @@ import ChatBot from './ChatBot';
 import SearchModal from './SearchModal';
 import DatabaseConfigModal from './DatabaseConfigModal';
 import AuthModal from './AuthModal';
+import { NotificationToast } from './NotificationToast';
+import NotificationCenter from './NotificationCenter';
 import { db } from '../services/db';
 
 const Layout: React.FC = () => {
-  const { appLoading, isSearchOpen, setIsSearchOpen, showConnModal, apiBaseUrl, setApiBaseUrl, isAuthenticated } = useApp();
+  const {
+    appLoading, isSearchOpen, setIsSearchOpen, showConnModal, apiBaseUrl,
+    setApiBaseUrl, isAuthenticated, newNotification, setNewNotification
+  } = useApp();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,6 +64,15 @@ const Layout: React.FC = () => {
       <ChatBot />
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <AuthModal isOpen={!isAuthenticated} onClose={() => { }} />
+      <div className="fixed bottom-6 right-6 z-[1001]">
+        <NotificationCenter />
+      </div>
+      {newNotification && (
+        <NotificationToast
+          notification={newNotification}
+          onClose={() => setNewNotification(null)}
+        />
+      )}
       {/* <DatabaseConfigModal
         isOpen={showConnModal}
         initialUrl={apiBaseUrl || 'http://localhost:3000/api'}

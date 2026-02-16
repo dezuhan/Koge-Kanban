@@ -5,19 +5,20 @@ interface CustomDatePickerProps {
   value: string; // YYYY-MM-DD
   onChange: (value: string) => void;
   label?: string;
+  disabled?: boolean;
 }
 
-export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onChange, label }) => {
+export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onChange, label, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'days' | 'months' | 'years'>('days');
   const [inputValue, setInputValue] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  
+
   // Parse current date or default to today
   const selectedDate = value ? new Date(value) : new Date();
   const [viewDate, setViewDate] = useState(new Date(selectedDate));
-  
+
   // Year grid start year (for 'years' view)
   const [startYear, setStartYear] = useState(viewDate.getFullYear() - 4);
 
@@ -120,13 +121,13 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
 
     // Actual days
     for (let i = 1; i <= totalDays; i++) {
-      const isSelected = value && 
-        selectedDate.getDate() === i && 
-        selectedDate.getMonth() === viewDate.getMonth() && 
+      const isSelected = value &&
+        selectedDate.getDate() === i &&
+        selectedDate.getMonth() === viewDate.getMonth() &&
         selectedDate.getFullYear() === viewDate.getFullYear();
-      
-      const isToday = new Date().getDate() === i && 
-        new Date().getMonth() === viewDate.getMonth() && 
+
+      const isToday = new Date().getDate() === i &&
+        new Date().getMonth() === viewDate.getMonth() &&
         new Date().getFullYear() === viewDate.getFullYear();
 
       days.push(
@@ -135,7 +136,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
           type="button"
           onClick={() => handleDateClick(i)}
           className={`h-8 w-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center
-            ${isSelected ? 'bg-blue-600 text-white shadow-md' : 
+            ${isSelected ? 'bg-blue-600 text-white shadow-md' :
               isToday ? 'bg-blue-50 text-blue-600 border border-blue-200' : 'hover:bg-gray-100 text-gray-700'}`}
         >
           {i}
@@ -147,8 +148,8 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
       <>
         <div className="flex items-center justify-between mb-4">
           <button type="button" onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronLeft size={18} /></button>
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={() => setViewMode('months')}
             className="text-sm font-black text-gray-800 uppercase tracking-tight hover:text-blue-600 transition-colors"
           >
@@ -156,7 +157,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
           </button>
           <button type="button" onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronRight size={18} /></button>
         </div>
-        
+
         <div className="grid grid-cols-7 gap-1 mb-2">
           {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
             <div key={d} className="h-8 w-8 flex items-center justify-center text-[10px] font-black text-gray-400 uppercase">{d}</div>
@@ -172,8 +173,8 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
       <>
         <div className="flex items-center justify-between mb-4">
           <button type="button" onClick={() => setViewDate(new Date(viewDate.getFullYear() - 1, viewDate.getMonth(), 1))} className="p-1 hover:bg-gray-100 rounded-lg text-gray-500"><ChevronLeft size={18} /></button>
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={() => { setStartYear(viewDate.getFullYear() - 4); setViewMode('years'); }}
             className="text-sm font-black text-gray-800 uppercase tracking-tight hover:text-blue-600 transition-colors"
           >
@@ -234,26 +235,28 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
   return (
     <div className="relative w-full" ref={containerRef}>
       {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
-      <div 
-        className="flex items-center gap-3 px-3 py-2 bg-white border border-gray-300 rounded-lg cursor-text hover:border-blue-400 transition-all shadow-sm group focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500"
+      <div
+        className={`flex items-center gap-3 px-3 py-2 border rounded-lg transition-all shadow-sm group ${disabled ? 'bg-gray-50 border-gray-100 cursor-default grayscale opacity-60' : 'bg-white border-gray-300 cursor-text hover:border-blue-400 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500'
+          }`}
       >
-        <CalendarIcon 
-          size={18} 
-          onClick={() => { setIsOpen(!isOpen); if(!isOpen) setViewMode('days'); }}
-          className={`cursor-pointer transition-colors ${isOpen ? 'text-blue-600' : 'text-gray-400 group-hover:text-blue-500'}`} 
+        <CalendarIcon
+          size={18}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`transition-colors ${disabled ? 'cursor-default' : 'cursor-pointer'} ${isOpen ? 'text-blue-600' : 'text-gray-400 group-hover:text-blue-500'}`}
         />
         <input
+          disabled={disabled}
           ref={inputRef}
           type="text"
           value={inputValue}
           onChange={handleInputChange}
-          onFocus={() => { setIsOpen(true); setViewMode('days'); }}
+          onFocus={() => { if (!disabled) { setIsOpen(true); setViewMode('days'); } }}
           placeholder="DD/MM/YYYY"
-          className="text-sm flex-1 bg-transparent border-none outline-none p-0 text-gray-800 font-medium placeholder:text-gray-400"
+          className={`text-sm flex-1 bg-transparent border-none outline-none p-0 text-gray-800 font-medium placeholder:text-gray-400 ${disabled ? 'cursor-default' : ''}`}
         />
-        {value && (
-          <button 
-            type="button" 
+        {value && !disabled && (
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onChange(''); setInputValue(''); }}
             className="p-0.5 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600"
           >
@@ -269,15 +272,15 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
           {viewMode === 'years' && renderYearsView()}
 
           <div className="border-t border-gray-100 mt-2 pt-2 flex justify-between">
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => { setViewDate(new Date()); handleDateClick(new Date().getDate()); setViewMode('days'); }}
               className="text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
             >
               Today
             </button>
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => { onChange(''); setIsOpen(false); setViewMode('days'); }}
               className="text-[10px] font-black text-gray-400 hover:text-gray-600 uppercase tracking-widest"
             >

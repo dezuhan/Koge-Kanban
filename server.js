@@ -8,12 +8,40 @@ import helmet from 'helmet';
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { Server } from 'socket.io';
+import { createServer } from 'http';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const httpServer = createServer(app);
+const ENABLE_WEBSOCKET = process.env.ENABLE_WEBSOCKET !== 'false'; // Change to false manually or via env to disable
+
+let io;
+if (ENABLE_WEBSOCKET) {
+  io = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
+} else {
+  console.log("WebSocket is disabled by configuration.");
+  io = {
+    use: () => { },
+    on: () => { },
+    to: () => ({ emit: () => { } }),
+    emit: () => { }
+  };
+
+  // Prevent socket.io requests falling through to catch-all if disabled
+  app.all('/socket.io/*', (req, res) => {
+    res.status(404).send('Websocket support is disabled.');
+  });
+}
 
 // Security Middleware
 app.use(helmet({
@@ -39,7 +67,8 @@ app.use(cors({
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }));
 
 app.use(express.json({ limit: '10mb' })); // Limit payload size
@@ -155,6 +184,65 @@ function cleanupLeftoverTempFiles() {
 }
 cleanupLeftoverTempFiles();
 
+// --- Socket.io Real-time Logic ---
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) {
+    if (socket.handshake.headers['x-is-guest'] === 'true') {
+      socket.user = { id: 0, username: 'Guest' };
+      return next();
+    }
+    return next(new Error('Authentication error'));
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return next(new Error('Authentication error'));
+    socket.user = user;
+    next();
+  });
+});
+
+io.on('connection', (socket) => {
+  console.log(`[Socket] User connected: ${socket.id} (User ID: ${socket.user?.id})`);
+
+  socket.on('join_project', (projectId) => {
+    if (!socket.user) return;
+
+    // SECURITY CHECK: Verify if user has access to this project
+    try {
+      if (socket.user.id !== 0) {
+        const hasAccess = db.prepare("SELECT 1 FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, socket.user.id);
+        if (!hasAccess) {
+          console.warn(`[Socket] Unauthorized join attempt for project ${projectId} by user ${socket.user.id}`);
+          return;
+        }
+      }
+      socket.join(`project_${projectId}`);
+      console.log(`[Socket] User ${socket.user.id} joined project room: ${projectId}`);
+    } catch (err) {
+      console.error("[Socket] Join project error:", err);
+    }
+  });
+
+  socket.on('join_user', (userId) => {
+    if (!socket.user) return;
+
+    // SECURITY CHECK: User can only join their own room
+    if (socket.user.id != userId) {
+      console.warn(`[Socket] Unauthorized join attempt for user room ${userId} by user ${socket.user.id}`);
+      return;
+    }
+
+    socket.join(`user_${userId}`);
+    console.log(`[Socket] User ${socket.user.id} joined personal room: user_${userId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`[Socket] User disconnected: ${socket.id}`);
+  });
+});
+
+
 // Endpoint to trigger cleanup manually
 app.post('/api/cleanup/temp', (req, res) => {
   const results = cleanupLeftoverTempFiles();
@@ -162,6 +250,18 @@ app.post('/api/cleanup/temp', (req, res) => {
     success: true,
     message: `Cleanup completed. Deleted ${results.deleted.length} temp files.`,
     details: results
+  });
+});
+
+/**
+ * Public Health Check Endpoint
+ */
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    database: !!db,
+    websocket: ENABLE_WEBSOCKET,
+    version: '3.0.1'
   });
 });
 
@@ -178,18 +278,59 @@ function initializeDatabase() {
     // Enable WAL mode for better concurrency
     db.pragma('journal_mode = WAL');
 
+    // MIGRATION: Check if kv_store already exists and lacks user_id
+    const tableInfo = db.prepare("PRAGMA table_info(kv_store)").all();
+    const hasUserId = tableInfo.some(col => col.name === 'user_id');
+
+    if (tableInfo.length > 0 && !hasUserId) {
+      console.log("[Migration] Adding user_id to existing tables for data isolation...");
+      db.transaction(() => {
+        // Migration for kv_store
+        db.prepare("ALTER TABLE kv_store RENAME TO kv_store_old").run();
+        db.prepare(`
+          CREATE TABLE kv_store (
+            user_id INTEGER,
+            key TEXT,
+            value TEXT,
+            PRIMARY KEY (user_id, key)
+          )
+        `).run();
+        db.prepare("INSERT INTO kv_store (user_id, key, value) SELECT 0, key, value FROM kv_store_old").run();
+        db.prepare("DROP TABLE kv_store_old").run();
+
+        // Migration for trash_store
+        db.prepare("ALTER TABLE trash_store RENAME TO trash_store_old").run();
+        db.prepare(`
+          CREATE TABLE trash_store (
+            user_id INTEGER,
+            key TEXT,
+            value TEXT,
+            deleted_at INTEGER,
+            PRIMARY KEY (user_id, key)
+          )
+        `).run();
+        db.prepare("INSERT INTO trash_store (user_id, key, value, deleted_at) SELECT 0, key, value, deleted_at FROM trash_store_old").run();
+        db.prepare("DROP TABLE trash_store_old").run();
+      })();
+      console.log("[Migration] Data successfully isolated under user_id 0 (legacy/guest).");
+    }
+
     db.prepare(`
       CREATE TABLE IF NOT EXISTS kv_store (
-        key TEXT PRIMARY KEY,
-        value TEXT
+        user_id INTEGER,
+        key TEXT,
+        value TEXT,
+        PRIMARY KEY (user_id, key)
       )
     `).run();
 
     db.prepare(`
       CREATE TABLE IF NOT EXISTS trash_store (
-        key TEXT PRIMARY KEY,
+        user_id INTEGER,
+        key TEXT,
         value TEXT,
-        deleted_at INTEGER
+        deleted_at INTEGER,
+        PRIMARY KEY (user_id, key)
       )
     `).run();
 
@@ -199,9 +340,52 @@ function initializeDatabase() {
         username TEXT UNIQUE,
         email TEXT UNIQUE,
         password TEXT,
+        access_token TEXT,
         created_at INTEGER
       )
     `).run();
+
+    // Migration: Add access_token to users if missing
+    const usersInfo = db.prepare("PRAGMA table_info(users)").all();
+    if (!usersInfo.some(col => col.name === 'access_token')) {
+      db.prepare("ALTER TABLE users ADD COLUMN access_token TEXT").run();
+      // Backfill existing users
+      const users = db.prepare("SELECT id, username FROM users").all();
+      for (const u of users) {
+        const token = crypto.createHash('sha256').update(u.username + Date.now() + Math.random()).digest('hex');
+        db.prepare("UPDATE users SET access_token = ? WHERE id = ?").run(token, u.id);
+      }
+    }
+
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        type TEXT,
+        message TEXT,
+        metadata TEXT,
+        is_read INTEGER DEFAULT 0,
+        created_at INTEGER
+      )
+    `).run();
+
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS project_access (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        user_id INTEGER,
+        owner_id INTEGER,
+        permissions TEXT DEFAULT 'editor',
+        access_token TEXT,
+        UNIQUE(project_id, user_id)
+      )
+    `).run();
+
+    // Migration: Add access_token if missing
+    const paInfo = db.prepare("PRAGMA table_info(project_access)").all();
+    if (!paInfo.some(col => col.name === 'access_token')) {
+      db.prepare("ALTER TABLE project_access ADD COLUMN access_token TEXT").run();
+    }
 
     console.log(`SQLite database checked/created at: ${DB_PATH}`);
   } catch (err) {
@@ -212,6 +396,192 @@ function initializeDatabase() {
 
 // Initialize DB on startup
 initializeDatabase();
+
+// --- AUTH MIDDLEWARE ---
+const JWT_SECRET = process.env.JWT_SECRET || 'koge-kanban-secret-key-change-me';
+
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    // Check if it's a guest request (we allow some routes for guest user_id = 0)
+    if (req.headers['x-is-guest'] === 'true') {
+      req.user = { id: 0, username: 'Guest' };
+      return next();
+    }
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid or expired token' });
+    req.user = user;
+    next();
+  });
+};
+
+// --- User Search Endpoint ---
+app.get('/api/users/search', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  const query = req.query.q;
+  if (!query || query.length < 2) {
+    return res.json([]);
+  }
+
+  try {
+    const rows = db.prepare(`
+      SELECT id, username, email 
+      FROM users 
+      WHERE (username LIKE ? OR email LIKE ?) 
+      AND id != ? 
+      LIMIT 10
+    `).all(`%${query}%`, `%${query}%`, req.user.id);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// --- Project Sharing Endpoints ---
+
+/**
+ * POST /api/project/:id/share
+ */
+app.post('/api/project/:id/share', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  const projectId = req.params.id;
+  const { userId, permissions } = req.body;
+
+  if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+  try {
+    // Check if requester is owner
+    const requesterShare = db.prepare("SELECT permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+    if (!requesterShare || requesterShare.permissions !== 'owner') {
+      return res.status(403).json({ error: 'Only the project owner can manage sharing.' });
+    }
+
+    // 1. Fetch the target user's access token
+    const targetUser = db.prepare("SELECT access_token FROM users WHERE id = ?").get(userId);
+    if (!targetUser) return res.status(404).json({ error: 'User not found' });
+
+    db.prepare(`
+      INSERT OR REPLACE INTO project_access (project_id, user_id, owner_id, permissions, access_token)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(projectId, userId, req.user.id, permissions || 'editor', targetUser.access_token);
+
+    res.json({ success: true, message: 'Project shared successfully', token: targetUser.access_token });
+  } catch (err) {
+    console.error("Share error:", err);
+    res.status(500).json({ error: 'Failed to share project' });
+  }
+});
+
+/**
+ * GET /api/project/:id/members
+ */
+app.get('/api/project/:id/members', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  const projectId = req.params.id;
+
+  try {
+    // Get members from project_access
+    const rows = db.prepare(`
+      SELECT u.id, u.username, u.email, pa.permissions, pa.access_token as accessCode, pa.owner_id
+      FROM users u
+      JOIN project_access pa ON u.id = pa.user_id
+      WHERE pa.project_id = ?
+    `).all(projectId);
+
+    // Also get the project owner info from kv_store if possible, or just look at owner_id from first row
+    // But since projects are in kv_store, let's find who originally owns this project_id
+    // Actually, owner_id is already in project_access if shared.
+    // Let's also look for the real owner who is NOT in project_access (the one who HAS it in 'kanban_projects')
+
+    // Simplification: the one who shared it (owner_id in pa) is the admin.
+    // If no shares yet, we can't easily find the owner without checking everyone's kv_store.
+    // But usually the requester IS the owner if they are viewing this modal.
+
+    // Better way: Union with the project owner
+    // We'll assume the first share's owner_id is the primary admin.
+    let ownerInfo = null;
+    if (rows.length > 0) {
+      const o = db.prepare("SELECT id, username, email FROM users WHERE id = ?").get(rows[0].owner_id);
+      if (o) ownerInfo = { ...o, permissions: 'owner', isAdmin: true };
+    } else {
+      // if no shares, current user is owner
+      const o = db.prepare("SELECT id, username, email FROM users WHERE id = ?").get(req.user.id);
+      if (o) ownerInfo = { ...o, permissions: 'owner', isAdmin: true };
+    }
+
+    const finalMembers = [];
+    if (ownerInfo) finalMembers.push(ownerInfo);
+
+    rows.forEach(r => {
+      if (r.id !== ownerInfo?.id) {
+        finalMembers.push(r);
+      }
+    });
+
+    res.json(finalMembers);
+  } catch (err) {
+    console.error("Fetch members error:", err);
+    res.status(500).json({ error: 'Failed to fetch members' });
+  }
+});
+
+app.delete('/api/project/:id/share/:userId', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  const { id: projectId, userId } = req.params;
+
+  try {
+    const targetUserId = parseInt(userId);
+
+    // Check if requester is owner
+    const requesterShare = db.prepare("SELECT permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+    if (!requesterShare || requesterShare.permissions !== 'owner') {
+      return res.status(403).json({ error: 'Only the project owner can remove members.' });
+    }
+
+    db.prepare("DELETE FROM project_access WHERE project_id = ? AND user_id = ?").run(projectId, targetUserId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Remove member error:", err);
+    res.status(500).json({ error: 'Failed to remove member' });
+  }
+});
+
+/**
+ * PATCH /api/project/:id/share/:userId
+ */
+app.patch('/api/project/:id/share/:userId', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  const { id: projectId, userId } = req.params;
+  const { permissions } = req.body;
+
+  if (!permissions) return res.status(400).json({ error: 'Permissions required' });
+
+  try {
+    const targetUserId = parseInt(userId);
+
+    // Check if requester is owner
+    const requesterShare = db.prepare("SELECT permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+    if (!requesterShare || requesterShare.permissions !== 'owner') {
+      return res.status(403).json({ error: 'Only the project owner can update member permissions.' });
+    }
+
+    const info = db.prepare("UPDATE project_access SET permissions = ? WHERE project_id = ? AND user_id = ?").run(permissions, projectId, targetUserId);
+
+    if (info.changes === 0) {
+      return res.status(404).json({ error: 'Member not found in this project' });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Update permissions error:", err);
+    res.status(500).json({ error: 'Failed to update permissions' });
+  }
+});
 
 /**
  * Shared Helper: internalPerformRestore
@@ -418,17 +788,39 @@ const internalPerformRestore = (db, key, options = {}) => {
 };
 
 // New Endpoint: Get all tasks from all projects
-app.get('/api/tasks/global', (req, res) => {
+app.get('/api/tasks/global', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   try {
-    const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE 'tasks_%'").all();
+    // Get own tasks
+    const ownRows = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key LIKE 'tasks_%'").all(req.user.id);
+
+    // Get shared tasks
+    const sharedInfos = db.prepare("SELECT project_id, owner_id FROM project_access WHERE user_id = ? AND owner_id != ?").all(req.user.id, req.user.id);
+    const sharedRows = [];
+    for (const info of sharedInfos) {
+      const row = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key = ?").get(info.owner_id, `tasks_${info.project_id}`);
+      if (row) sharedRows.push(row);
+    }
+
+    // Use a Map to unique-ify by project ID (shared takes precedence if ID conflict)
+    const rowMap = new Map();
+    ownRows.forEach(row => {
+      const pid = row.key.replace('tasks_', '');
+      rowMap.set(pid, row);
+    });
+    sharedRows.forEach(row => {
+      const pid = row.key.replace('tasks_', '');
+      rowMap.set(pid, row);
+    });
+
+    const rows = Array.from(rowMap.values());
 
     // Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
       try {
-        const keyParts = row.key ? row.key.split('tasks_') : [];
-        const projectId = keyParts.length > 1 ? keyParts[1] : null;
+        if (!row || !row.key) return acc;
+        const projectId = row.key.replace('tasks_', '');
 
         const tasks = JSON.parse(row.value);
 
@@ -454,7 +846,7 @@ app.get('/api/tasks/global', (req, res) => {
 });
 
 // Generic GET endpoint
-app.get('/api/data/:key', (req, res) => {
+app.get('/api/data/:key', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   if (!req.params.key || req.params.key.length > 255) {
@@ -462,7 +854,47 @@ app.get('/api/data/:key', (req, res) => {
   }
 
   try {
-    const row = db.prepare("SELECT value FROM kv_store WHERE key = ?").get(req.params.key);
+    const key = req.params.key;
+    let ownerId = req.user.id;
+
+    // Special Handling for project list: merge shared projects
+    if (key === 'kanban_projects') {
+      const ownRow = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(req.user.id, key);
+      let ownProjects = ownRow ? JSON.parse(ownRow.value) : [];
+
+      const sharedInfos = db.prepare("SELECT project_id, owner_id, permissions FROM project_access WHERE user_id = ? AND owner_id != ?").all(req.user.id, req.user.id);
+
+      const sharedProjects = [];
+      for (const info of sharedInfos) {
+        const ownerRow = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(info.owner_id, 'kanban_projects');
+        if (ownerRow) {
+          const ownerProjects = JSON.parse(ownerRow.value);
+          const project = ownerProjects.find(p => p.id === info.project_id);
+          if (project) {
+            sharedProjects.push({ ...project, isShared: true, ownerId: info.owner_id, permissions: info.permissions });
+          }
+        }
+      }
+
+      // Use a Map to unique-ify by project ID (shared takes precedence if ID conflict)
+      const projectMap = new Map();
+      ownProjects.forEach(p => projectMap.set(p.id, p));
+      sharedProjects.forEach(p => projectMap.set(p.id, p));
+
+      return res.json(Array.from(projectMap.values()));
+    }
+
+    // Project Data Check: tasks_uuid, columns_uuid, etc.
+    if (key.startsWith('tasks_') || key.startsWith('columns_') || key.startsWith('chat_history_')) {
+      const projectId = key.split('_')[1];
+      // Prioritize shared project data if there is an ID collision (e.g. Welcome board)
+      const share = db.prepare("SELECT owner_id FROM project_access WHERE project_id = ? AND user_id = ? ORDER BY (owner_id != ?) DESC").get(projectId, req.user.id, req.user.id);
+      if (share) {
+        ownerId = share.owner_id;
+      }
+    }
+
+    const row = db.prepare("SELECT value FROM kv_store WHERE user_id = ? AND key = ?").get(ownerId, req.params.key);
 
     if (row) {
       res.json(JSON.parse(row.value));
@@ -476,7 +908,7 @@ app.get('/api/data/:key', (req, res) => {
 });
 
 // Generic POST endpoint
-app.post('/api/data/:key', (req, res) => {
+app.post('/api/data/:key', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   if (!req.params.key || req.params.key.length > 255) {
@@ -484,11 +916,123 @@ app.post('/api/data/:key', (req, res) => {
   }
 
   try {
-    const valueStr = JSON.stringify(req.body);
+    let valueStr = JSON.stringify(req.body);
+    const key = req.params.key;
+    let ownerId = req.user.id;
+
+    // Filter shared projects before saving project list
+    if (key === 'kanban_projects' && Array.isArray(req.body)) {
+      const filtered = req.body.filter(p => !p.isShared);
+      valueStr = JSON.stringify(filtered);
+
+      // Auto-register ownership if not exists
+      try {
+        const user = db.prepare("SELECT access_token FROM users WHERE id = ?").get(req.user.id);
+        if (user) {
+          for (const project of filtered) {
+            db.prepare(`
+               INSERT OR IGNORE INTO project_access (project_id, user_id, owner_id, permissions, access_token)
+               VALUES (?, ?, ?, ?, ?)
+             `).run(project.id, req.user.id, req.user.id, 'owner', user.access_token);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to auto-register project ownership:", e);
+      }
+    }
+
+    // Project Data Check
+    if (key.startsWith('tasks_') || key.startsWith('columns_') || key.startsWith('chat_history_')) {
+      const projectId = key.split('_')[1];
+      const share = db.prepare("SELECT owner_id, permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+      if (share) {
+        if (share.permissions !== 'editor' && share.permissions !== 'owner') {
+          return res.status(403).json({ error: 'You do not have permission to edit this project' });
+        }
+        ownerId = share.owner_id;
+      }
+    }
 
     db.prepare(
-      "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)"
-    ).run(req.params.key, valueStr);
+      "INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)"
+    ).run(ownerId, req.params.key, valueStr);
+
+    // Emit real-time update
+    if (key.startsWith('tasks_') || key.startsWith('columns_')) {
+      const projectId = key.split('_')[1];
+      io.to(`project_${projectId}`).emit('data_updated', { key, senderId: req.user.id });
+    } else if (key === 'kanban_projects') {
+      io.to(`user_${req.user.id}`).emit('data_updated', { key });
+    }
+
+    // --- MENTION DETECTION LOGIC ---
+    // If we are saving tasks, check for @username mentions
+    if (req.params.key.startsWith('tasks_')) {
+      const tasks = req.body;
+      if (Array.isArray(tasks)) {
+        tasks.forEach(task => {
+          const content = `${task.title} ${task.description || ''}`;
+          const mentions = content.match(/@(\w+)/g);
+
+          if (mentions) {
+            const uniqueUsernames = [...new Set(mentions.map(m => m.substring(1)))];
+            uniqueUsernames.forEach(username => {
+              const targetUser = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+              if (targetUser && targetUser.id !== req.user.id) {
+                const exists = db.prepare("SELECT id FROM notifications WHERE user_id = ? AND metadata LIKE ? AND type = 'mention' AND is_read = 0")
+                  .get(targetUser.id, `%${task.id}%`);
+                if (!exists) {
+                  db.prepare(`
+                    INSERT INTO notifications (user_id, type, message, metadata, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                  `).run(
+                    targetUser.id,
+                    'mention',
+                    `${req.user.username} mentioned you in task: ${task.title}`,
+                    JSON.stringify({ taskId: task.id, projectId: req.params.key.replace('tasks_', ''), sender: req.user.username }),
+                    Date.now()
+                  );
+
+                  // Real-time notification
+                  io.to(`user_${targetUser.id}`).emit('new_notification', {
+                    type: 'mention',
+                    message: `${req.user.username} mentioned you in task: ${task.title}`
+                  });
+                }
+              }
+            });
+          }
+
+          // Assignee Notification
+          if (task.assignee) {
+            const targetUser = db.prepare("SELECT id FROM users WHERE username = ?").get(task.assignee);
+            if (targetUser && targetUser.id !== req.user.id) {
+              const exists = db.prepare("SELECT id FROM notifications WHERE user_id = ? AND metadata LIKE ? AND type = 'assignment' AND is_read = 0")
+                .get(targetUser.id, `%${task.id}%`);
+
+              if (!exists) {
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, message, metadata, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                  `).run(
+                  targetUser.id,
+                  'assignment',
+                  `${req.user.username} assigned you to task: ${task.title}`,
+                  JSON.stringify({ taskId: task.id, projectId: req.params.key.replace('tasks_', ''), sender: req.user.username }),
+                  Date.now()
+                );
+
+                // Real-time notification
+                io.to(`user_${targetUser.id}`).emit('new_notification', {
+                  type: 'assignment',
+                  message: `${req.user.username} assigned you to task: ${task.title}`
+                });
+              }
+            }
+          }
+        });
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {
@@ -498,7 +1042,7 @@ app.post('/api/data/:key', (req, res) => {
 });
 
 // Generic DELETE endpoint (Now with Soft Delete)
-app.delete('/api/data/:key', (req, res) => {
+app.delete('/api/data/:key', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   const key = req.params.key;
@@ -506,6 +1050,19 @@ app.delete('/api/data/:key', (req, res) => {
 
   try {
     let affectedKeys = [];
+    let ownerIdToCheck = req.user.id;
+
+    // Project Data Permission Check
+    if (key.startsWith('tasks_') || key.startsWith('columns_') || key.startsWith('chat_history_')) {
+      const projectId = key.split('_')[1];
+      const share = db.prepare("SELECT owner_id, permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+      if (share) {
+        if (share.permissions !== 'editor' && share.permissions !== 'owner') {
+          return res.status(403).json({ error: 'You do not have permission to delete content in this project.' });
+        }
+        ownerIdToCheck = share.owner_id;
+      }
+    }
 
     // 1. Identify keys to "delete"
     if (key.endsWith('*')) {
@@ -513,10 +1070,10 @@ app.delete('/api/data/:key', (req, res) => {
       if (prefix.length < 3) {
         return res.status(400).json({ error: 'Wildcard prefix too short' });
       }
-      const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE ?").all(`${prefix}%`);
+      const rows = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key LIKE ?").all(ownerIdToCheck, `${prefix}%`);
       affectedKeys = rows;
     } else {
-      const row = db.prepare("SELECT key, value FROM kv_store WHERE key = ?").get(key);
+      const row = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key = ?").get(ownerIdToCheck, key);
       if (row) affectedKeys = [row];
     }
 
@@ -526,15 +1083,19 @@ app.delete('/api/data/:key', (req, res) => {
 
     // 2. Perform Delete (Soft or Permanent)
     const now = Date.now();
-    const insertTrash = db.prepare("INSERT OR REPLACE INTO trash_store (key, value, deleted_at) VALUES (?, ?, ?)");
-    const deleteMain = db.prepare("DELETE FROM kv_store WHERE key = ?");
+    const insertTrash = db.prepare("INSERT OR REPLACE INTO trash_store (user_id, key, value, deleted_at) VALUES (?, ?, ?, ?)");
+    const deleteMain = db.prepare("DELETE FROM kv_store WHERE user_id = ? AND key = ?");
 
     const transaction = db.transaction((items) => {
       for (const item of items) {
         if (!isPermanent) {
-          insertTrash.run(item.key, item.value, now);
+          // Trash always goes to the OWN trash of the actor for safety?
+          // Or owner's trash? Usually it's better to go to actor's trash so they can restore it if they made a mistake.
+          // But then the owner can't see what was deleted. 
+          // Let's go with the actor's trash (req.user.id) as it is currently implemented.
+          insertTrash.run(req.user.id, item.key, item.value, now);
         }
-        deleteMain.run(item.key);
+        deleteMain.run(ownerIdToCheck, item.key);
       }
     });
 
@@ -553,10 +1114,9 @@ app.delete('/api/data/:key', (req, res) => {
 
 /**
  * POST /api/trash/item
- * Explicitly move an item to trash. Used for items that don't have a unique DB key
- * but should be recoverable (like individual tasks within a project list).
+ * Explicitly move an item to trash. 
  */
-app.post('/api/trash/item', (req, res) => {
+app.post('/api/trash/item', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
 
   const { key, value } = req.body;
@@ -569,8 +1129,8 @@ app.post('/api/trash/item', (req, res) => {
     const now = Date.now();
 
     db.prepare(
-      "INSERT OR REPLACE INTO trash_store (key, value, deleted_at) VALUES (?, ?, ?)"
-    ).run(key, valueStr, now);
+      "INSERT OR REPLACE INTO trash_store (user_id, key, value, deleted_at) VALUES (?, ?, ?, ?)"
+    ).run(req.user.id, key, valueStr, now);
 
     res.json({ success: true, message: 'Item moved to trash.' });
   } catch (error) {
@@ -579,16 +1139,14 @@ app.post('/api/trash/item', (req, res) => {
   }
 });
 
-// --- Trash Management Endpoints ---
-
 /**
  * GET /api/trash
- * Returns all items currently in the trash.
+ * Returns all items currently in the trash for the user.
  */
-app.get('/api/trash', (req, res) => {
+app.get('/api/trash', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   try {
-    const rows = db.prepare("SELECT key, value, deleted_at FROM trash_store ORDER BY deleted_at DESC").all();
+    const rows = db.prepare("SELECT key, value, deleted_at FROM trash_store WHERE user_id = ? ORDER BY deleted_at DESC").all(req.user.id);
     const items = rows.map(r => ({
       key: r.key,
       value: JSON.parse(r.value),
@@ -602,16 +1160,35 @@ app.get('/api/trash', (req, res) => {
 
 /**
  * POST /api/trash/restore/:key
- * Restores an item from trash back to the main store.
  */
-app.post('/api/trash/restore/:key', (req, res) => {
+app.post('/api/trash/restore/:key', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const key = req.params.key;
   const options = req.body || {};
 
   try {
+    let ownerIdToRestore = req.user.id;
+
+    // Check if it's project data and verify permissions
+    if (key.startsWith('tasks_') || key.startsWith('columns_') || key.startsWith('chat_history_')) {
+      const projectId = key.split('_')[1];
+      const share = db.prepare("SELECT owner_id, permissions FROM project_access WHERE project_id = ? AND user_id = ?").get(projectId, req.user.id);
+      if (share) {
+        if (share.permissions !== 'editor' && share.permissions !== 'owner') {
+          return res.status(403).json({ error: 'You do not have permission to restore items to this project.' });
+        }
+        ownerIdToRestore = share.owner_id;
+      }
+    }
+
     const transaction = db.transaction(() => {
-      return internalPerformRestore(db, key, options);
+      // Find item in actor's trash
+      const item = db.prepare("SELECT value FROM trash_store WHERE user_id = ? AND key = ?").get(req.user.id, key);
+      if (!item) throw new Error(`Item "${key}" not found in your trash.`);
+
+      db.prepare("INSERT OR REPLACE INTO kv_store (user_id, key, value) VALUES (?, ?, ?)").run(ownerIdToRestore, key, item.value);
+      db.prepare("DELETE FROM trash_store WHERE user_id = ? AND key = ?").run(req.user.id, key);
+      return { success: true };
     });
     const result = transaction();
     res.json({ success: true, message: result.message || 'Item restored successfully.' });
@@ -622,57 +1199,17 @@ app.post('/api/trash/restore/:key', (req, res) => {
 });
 
 /**
- * POST /api/trash/restore-bulk
- * Restores multiple items from trash.
- */
-app.post('/api/trash/restore-bulk', (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Database not initialized' });
-  const { keys } = req.body;
-  if (!Array.isArray(keys)) return res.status(400).json({ error: 'Keys must be an array' });
-
-  const results = { success: [], errors: [] };
-
-  try {
-    const transaction = db.transaction(() => {
-      for (const key of keys) {
-        try {
-          internalPerformRestore(db, key);
-          results.success.push(key);
-        } catch (err) {
-          results.errors.push({ key, error: err.message || 'Unknown error during item restoration' });
-        }
-      }
-    });
-
-    transaction();
-
-    res.json({
-      success: true,
-      message: `Processed ${keys.length} items: ${results.success.length} succeeded, ${results.errors.length} failed.`,
-      results
-    });
-  } catch (err) {
-    console.error("Bulk restore system error:", err);
-    res.status(500).json({
-      error: 'Bulk restore transaction failed',
-      details: err.message || 'A database or system error occurred.'
-    });
-  }
-});
-
-/**
  * DELETE /api/trash/permanent/:key
- * Permanently deletes an item from the trash.
  */
-app.delete('/api/trash/permanent/:key', (req, res) => {
+app.delete('/api/trash/permanent/:key', authenticateToken, (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const key = req.params.key;
   try {
     let info;
     if (key === '__all__') {
-      info = db.prepare("DELETE FROM trash_store").run();
+      info = db.prepare("DELETE FROM trash_store WHERE user_id = ?").run(req.user.id);
     } else {
-      info = db.prepare("DELETE FROM trash_store WHERE key = ?").run(key);
+      info = db.prepare("DELETE FROM trash_store WHERE user_id = ? AND key = ?").run(req.user.id, key);
     }
     res.json({ success: true, deletedCount: info.changes });
   } catch (err) {
@@ -680,9 +1217,68 @@ app.delete('/api/trash/permanent/:key', (req, res) => {
   }
 });
 
+// --- Notification Endpoints ---
+
+/**
+ * GET /api/notifications
+ */
+app.get('/api/notifications', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  try {
+    const rows = db.prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC").all(req.user.id);
+    const notifications = rows.map(r => ({
+      ...r,
+      metadata: r.metadata ? JSON.parse(r.metadata) : null,
+      isRead: r.is_read === 1
+    }));
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+});
+
+/**
+ * POST /api/notifications/:id/read
+ */
+app.post('/api/notifications/:id/read', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  try {
+    const info = db.prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
+    res.json({ success: info.changes > 0 });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to mark notification as read' });
+  }
+});
+
+/**
+ * DELETE /api/notifications/:id
+ */
+app.delete('/api/notifications/:id', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  try {
+    const info = db.prepare("DELETE FROM notifications WHERE id = ? AND user_id = ?").run(req.params.id, req.user.id);
+    res.json({ success: info.changes > 0 });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete notification' });
+  }
+});
+
+/**
+ * DELETE /api/notifications/clear-all
+ */
+app.delete('/api/notifications/clear-all', authenticateToken, (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Database not initialized' });
+  try {
+    const info = db.prepare("DELETE FROM notifications WHERE user_id = ?").run(req.user.id);
+    res.json({ success: true, count: info.changes });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear notifications' });
+  }
+});
+
 // --- Authentication Endpoints ---
 
-const JWT_SECRET = process.env.JWT_SECRET || 'koge-kanban-secret-key-change-me';
+// (JWT_SECRET moved to top)
 
 /**
  * POST /api/auth/register
@@ -692,8 +1288,14 @@ app.post('/api/auth/register', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Database not initialized' });
   const { username, email, password } = req.body;
 
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
+  if (!username || !password || !email) {
+    return res.status(400).json({ error: 'Username, email, and password are required' });
+  }
+
+  // Simple email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email format' });
   }
 
   try {
@@ -705,10 +1307,11 @@ app.post('/api/auth/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const now = Date.now();
+    const accessToken = crypto.createHash('sha256').update(username + now + Math.random()).digest('hex');
 
     const info = db.prepare(
-      "INSERT INTO users (username, email, password, created_at) VALUES (?, ?, ?, ?)"
-    ).run(username, email || '', hashedPassword, now);
+      "INSERT INTO users (username, email, password, access_token, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(username, email || '', hashedPassword, accessToken, now);
 
     const token = jwt.sign({ id: info.lastInsertRowid, username }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -716,7 +1319,7 @@ app.post('/api/auth/register', async (req, res) => {
       success: true,
       message: 'User registered successfully',
       token,
-      user: { id: info.lastInsertRowid, username, email }
+      user: { id: info.lastInsertRowid, username, email, accessToken }
     });
   } catch (err) {
     console.error("Register error:", err);
@@ -1159,7 +1762,7 @@ const getOllamaHost = (req) => {
  * GET /api/ai/models
  * Proxies request to local Ollama to get list of installed models
  */
-app.get('/api/ai/models', async (req, res) => {
+app.get('/api/ai/models', authenticateToken, async (req, res) => {
   const ollamaHost = getOllamaHost(req);
   try {
     const controller = new AbortController();
@@ -1184,7 +1787,7 @@ app.get('/api/ai/models', async (req, res) => {
  * POST /api/ai/generate
  * Proxies request to local Ollama instance
  */
-app.post('/api/ai/generate', async (req, res) => {
+app.post('/api/ai/generate', authenticateToken, async (req, res) => {
   const { prompt, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
   const targetModel = model || "qwen2.5:3b";
@@ -1227,7 +1830,7 @@ app.post('/api/ai/generate', async (req, res) => {
  * POST /api/ai/chat
  * Proxies chat request to local Ollama instance
  */
-app.post('/api/ai/chat', async (req, res) => {
+app.post('/api/ai/chat', authenticateToken, async (req, res) => {
   const { messages, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
   const targetModel = model || "qwen2.5:3b";
@@ -1274,14 +1877,13 @@ app.get('*', (req, res) => {
   }
   // res.sendFile(path.join(__dirname, 'dist', 'index.html'));
   res.send("Server is running. Frontend not served in this environment.");
-  console.log("Server is running. Frontend not served in this environment.");
 });
 
 // Export the app for Vercel
 export default app;
 
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Backend server running on http://127.0.0.1:${PORT}`);
     console.log(`Security: CORS enabled for origins: ${allowedOrigins.join(', ')}`);
   });

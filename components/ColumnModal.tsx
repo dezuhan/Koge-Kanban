@@ -7,6 +7,7 @@ interface ColumnModalProps {
   onClose: () => void;
   onSave: (column: Column) => void;
   initialColumn?: Column | null;
+  isReadOnly?: boolean;
 }
 
 const PRESET_COLORS = [
@@ -25,7 +26,7 @@ const PRESET_COLORS = [
   '#f43f5e', // Rose
 ];
 
-const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, initialColumn }) => {
+const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, initialColumn, isReadOnly = false }) => {
   const [title, setTitle] = useState('');
   const [color, setColor] = useState('#94a3b8');
 
@@ -55,7 +56,7 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
     <div className="column-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 md:p-4">
       <div className="column-modal-container bg-white md:rounded-2xl shadow-2xl w-full h-full md:h-auto md:max-w-sm overflow-hidden flex flex-col">
         <div className="column-modal-header flex justify-between items-center p-4 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-800">{initialColumn ? 'Edit Column' : 'New Column'}</h2>
+          <h2 className="text-xl font-bold text-gray-800">{isReadOnly ? 'Column Details' : (initialColumn ? 'Edit Column' : 'New Column')}</h2>
           <button onClick={onClose} className="btn-close p-1 hover:bg-gray-100 rounded-full text-gray-500 transition">
             <X size={20} />
           </button>
@@ -66,10 +67,11 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
             <label className="block text-sm font-medium text-gray-700 mb-1">Column Name</label>
             <input
               required
+              readOnly={isReadOnly}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="input-title w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`input-title w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${isReadOnly ? 'bg-gray-50 grayscale opacity-60 cursor-default' : ''}`}
               placeholder="e.g., In Review"
             />
           </div>
@@ -81,20 +83,22 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
                 <button
                   key={c}
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => setColor(c)}
-                  className={`color-swatch w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c ? 'border-gray-600 scale-110' : 'border-transparent'}`}
+                  className={`color-swatch w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${color === c ? 'border-gray-600 scale-110' : 'border-transparent'} ${isReadOnly ? 'cursor-default grayscale opacity-60' : ''}`}
                   style={{ backgroundColor: c }}
                 />
               ))}
             </div>
             <div className="custom-color flex items-center gap-2">
-               <span className="text-xs text-gray-500">Custom:</span>
-               <input 
-                  type="color" 
-                  value={color}
-                  onChange={(e) => setColor(e.target.value)}
-                  className="input-color-picker w-full h-8 rounded-xl cursor-pointer border-gray-200 border"
-               />
+              <span className="text-xs text-gray-500">Custom:</span>
+              <input
+                disabled={isReadOnly}
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                className={`input-color-picker w-full h-8 rounded-xl cursor-pointer border-gray-200 border ${isReadOnly ? 'grayscale opacity-60 cursor-default' : ''}`}
+              />
             </div>
           </div>
 
@@ -104,14 +108,16 @@ const ColumnModal: React.FC<ColumnModalProps> = ({ isOpen, onClose, onSave, init
               onClick={onClose}
               className="btn-cancel px-4 py-2 text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition"
             >
-              Cancel
+              {isReadOnly ? 'Close' : 'Cancel'}
             </button>
-            <button
-              type="submit"
-              className="btn-save px-4 py-2 text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition shadow-sm"
-            >
-              Save
-            </button>
+            {!isReadOnly && (
+              <button
+                type="submit"
+                className="btn-save px-4 py-2 text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition shadow-sm"
+              >
+                Save
+              </button>
+            )}
           </div>
         </form>
       </div>

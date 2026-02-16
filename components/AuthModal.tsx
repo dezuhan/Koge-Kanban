@@ -260,7 +260,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                         value={email}
                                         onChange={e => setEmail(e.target.value)}
                                         className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all placeholder:text-slate-300"
-                                        placeholder="Optional email address"
+                                        placeholder="Enter your email address"
+                                        required
                                     />
                                 </div>
                             </div>

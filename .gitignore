@@ -134,3 +134,13 @@ kanban.db-wal
 *.db
 *.db-journal
 db/
+
+# IDE Settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Utility & Debug Scripts
+debug-*.js
+check_env.js

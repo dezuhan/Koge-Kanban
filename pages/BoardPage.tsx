@@ -50,12 +50,18 @@ const BoardPage: React.FC = () => {
 
   // Ref to block deep link effect during save operations to prevent modal reopening
   const isSavingRef = React.useRef(false);
+  // Track last loaded project to enable silent refreshes
+  const lastLoadedProjectId = useRef<string | null>(null);
 
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [boardLoading, setBoardLoading] = useState(true);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [columns, setColumns] = useState<Column[]>([]);
   const [viewMode, setViewMode] = useState<'board' | 'table'>('board');
+
+  // Track state for changes
+  const lastSavedTasks = useRef<string>('');
+  const lastSavedColumns = useRef<string>('');
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -110,19 +116,39 @@ const BoardPage: React.FC = () => {
     }
   }, [projectId, projects, navigate]);
 
+  // Real-time: Join project room
+  useEffect(() => {
+    if (currentProject) {
+      db.joinProject(currentProject.id);
+    }
+  }, [currentProject]);
+
   // 2. Load Board Data
   useEffect(() => {
     if (!currentProject) return;
 
     const loadBoardData = async () => {
-      setBoardLoading(true);
+      const isInitialProjectLoad = lastLoadedProjectId.current !== currentProject.id;
+
+      if (isInitialProjectLoad) {
+        setBoardLoading(true);
+      }
+
       try {
         const [pTasks, pColumns] = await Promise.all([
           db.getTasks(currentProject.id),
           db.getColumns(currentProject.id)
         ]);
-        setTasks(pTasks || []);
-        setColumns((pColumns && pColumns.length > 0) ? pColumns : TEMPLATE_COLUMNS);
+        setTasks(prev => {
+          const next = pTasks || [];
+          lastSavedTasks.current = JSON.stringify(next);
+          return next;
+        });
+        setColumns(prev => {
+          const next = (pColumns && pColumns.length > 0) ? pColumns : TEMPLATE_COLUMNS;
+          lastSavedColumns.current = JSON.stringify(next);
+          return next;
+        });
 
         // Update Context for AI
         if (currentProject) {
@@ -133,10 +159,14 @@ const BoardPage: React.FC = () => {
             columns: (pColumns && pColumns.length > 0) ? pColumns : TEMPLATE_COLUMNS
           });
         }
+
+        lastLoadedProjectId.current = currentProject.id;
       } catch (err) {
         console.error("Failed to load project data", err);
       } finally {
-        setBoardLoading(false);
+        if (isInitialProjectLoad) {
+          setBoardLoading(false);
+        }
       }
     };
     loadBoardData();
@@ -163,13 +193,14 @@ const BoardPage: React.FC = () => {
     navigate(`/board/${projectId}`);
   };
 
-  // Track state for changes
-  const lastSavedTasks = useRef<string>('');
-  const lastSavedColumns = useRef<string>('');
+
+  const isReadOnly = useMemo(() => {
+    return currentProject?.isShared && currentProject.permissions === 'view';
+  }, [currentProject]);
 
   // Persist Tasks/Columns
   useEffect(() => {
-    if (currentProject && !boardLoading) {
+    if (currentProject && !boardLoading && !isReadOnly) {
       const tasksStr = JSON.stringify(tasks);
       if (tasksStr !== lastSavedTasks.current) {
         db.saveTasks(currentProject.id, tasks);
@@ -178,10 +209,10 @@ const BoardPage: React.FC = () => {
       // Update Context Live
       setCurrentContext(prev => prev ? { ...prev, tasks } : null);
     }
-  }, [tasks, currentProject, boardLoading, setCurrentContext]);
+  }, [tasks, currentProject, boardLoading, setCurrentContext, isReadOnly]);
 
   useEffect(() => {
-    if (currentProject && !boardLoading) {
+    if (currentProject && !boardLoading && !isReadOnly) {
       const columnsStr = JSON.stringify(columns);
       if (columnsStr !== lastSavedColumns.current) {
         db.saveColumns(currentProject.id, columns);
@@ -190,13 +221,13 @@ const BoardPage: React.FC = () => {
       // Update Context Live
       setCurrentContext(prev => prev ? { ...prev, columns } : null);
     }
-  }, [columns, currentProject, boardLoading, setCurrentContext]);
+  }, [columns, currentProject, boardLoading, setCurrentContext, isReadOnly]);
 
   // Update refs when data is freshly loaded from DB
   useEffect(() => {
     if (!boardLoading && currentProject) {
-        lastSavedTasks.current = JSON.stringify(tasks);
-        lastSavedColumns.current = JSON.stringify(columns);
+      lastSavedTasks.current = JSON.stringify(tasks);
+      lastSavedColumns.current = JSON.stringify(columns);
     }
   }, [boardLoading, currentProject]);
 
@@ -207,6 +238,7 @@ const BoardPage: React.FC = () => {
   // --- Handlers ---
 
   const handleSaveTask = (taskData: Omit<Task, 'id' | 'createdAt'> | Task) => {
+    if (isReadOnly) return;
     if ('id' in taskData) {
       // Set saving flag to true to block deep link effect
       isSavingRef.current = true;
@@ -232,6 +264,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleDeleteTask = async () => {
+    if (isReadOnly) return;
     if (taskToDelete && projectId) {
       const taskObj = tasks.find(t => t.id === taskToDelete);
       if (taskObj) {
@@ -249,6 +282,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleConfirmBulkDelete = async () => {
+    if (isReadOnly) return;
     if (projectId) {
       const tasksToTrash = tasks.filter(t => selectedTaskIds.includes(t.id));
       await Promise.all(tasksToTrash.map(t =>
@@ -280,6 +314,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleDuplicateTask = (task: Task) => {
+    if (isReadOnly) return;
     const duplicatedTask: Task = {
       ...task,
       id: crypto.randomUUID(),
@@ -292,14 +327,17 @@ const BoardPage: React.FC = () => {
   };
 
   const handleTaskMove = (taskId: string, newStatus: string) => {
+    if (isReadOnly) return;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
   };
 
   const handleTaskReorder = (newTasks: Task[]) => {
+    if (isReadOnly) return;
     setTasks(newTasks);
   };
 
   const handleToggleCheck = (taskId: string) => {
+    if (isReadOnly) return;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, isCompleted: !t.isCompleted } : t));
   };
 
@@ -316,14 +354,17 @@ const BoardPage: React.FC = () => {
   };
 
   const handleUpdateTaskStatus = (taskId: string, newStatus: string) => {
+    if (isReadOnly) return;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
   };
 
   const handleUpdateTaskPriority = (taskId: string, newPriority: Priority) => {
+    if (isReadOnly) return;
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, priority: newPriority } : t));
   };
 
   const handleUpdateProject = (updatedData: Pick<Project, 'id' | 'name' | 'description' | 'color'>) => {
+    if (isReadOnly) return;
     if (currentProject && projects) {
       const updatedProject = { ...currentProject, ...updatedData };
       setCurrentProject(updatedProject);
@@ -348,6 +389,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleSaveColumn = (column: Column) => {
+    if (isReadOnly) return;
     if (editingColumn) {
       setColumns(prev => prev.map(c => c.id === column.id ? column : c));
     } else {
@@ -356,6 +398,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleDeleteColumn = (id: string) => {
+    if (isReadOnly) return;
     if (columns.length <= 1) {
       globalAlert({
         title: 'Cannot Delete',
@@ -400,6 +443,7 @@ const BoardPage: React.FC = () => {
   };
 
   const handleColumnMove = (activeId: string, overId: string) => {
+    if (isReadOnly) return;
     setColumns(prev => {
       const oldIndex = prev.findIndex(c => c.id === activeId);
       const newIndex = prev.findIndex(c => c.id === overId);
@@ -623,6 +667,22 @@ const BoardPage: React.FC = () => {
                     </div>
                     <div className="border-t border-gray-50 mt-1 pt-1">
                       <button
+                        onClick={() => setIsProjectModalOpen(true)}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                      >
+                        <Settings size={16} />
+                        {isReadOnly ? 'Viewing Settings' : 'Project Settings'}
+                      </button>
+                      {!isReadOnly && (
+                        <button
+                          onClick={handleAddColumn}
+                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 border-t border-gray-50 transition-colors"
+                        >
+                          <Layout size={16} />
+                          Add Column
+                        </button>
+                      )}
+                      <button
                         disabled={isAILoading}
                         onClick={() => {
                           if (isAILoading) return;
@@ -655,13 +715,15 @@ const BoardPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleNewTask}
-              className="flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white h-10 px-3 md:px-5 rounded-lg font-bold transition shadow-md shadow-blue-500/20 hover:shadow-lg active:scale-95 group"
-            >
-              <Plus size={20} />
-              <span className="hidden md:inline ml-1.5">Add Task</span>
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={handleNewTask}
+                className="flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white h-10 px-3 md:px-5 rounded-lg font-bold transition shadow-md shadow-blue-500/20 hover:shadow-lg active:scale-95 group"
+              >
+                <Plus size={20} />
+                <span className="hidden md:inline ml-1.5">Add Task</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -721,6 +783,8 @@ const BoardPage: React.FC = () => {
             >
               <Search size={18} />
             </button>
+
+            {/* Notification Center moved to floating FAB */}
 
             <button
               onClick={() => navigate('/settings')}
@@ -821,38 +885,40 @@ const BoardPage: React.FC = () => {
             <BoardView
               tasks={processedTasks}
               columns={columns}
-              onTaskMove={isDragEnabled ? handleTaskMove : () => { }}
-              onTaskReorder={isManualSort ? handleTaskReorder : undefined}
+              onTaskMove={isDragEnabled && !isReadOnly ? handleTaskMove : () => { }}
+              onTaskReorder={isManualSort && !isReadOnly ? handleTaskReorder : undefined}
               onEditTask={handleEditTask}
-              onDeleteTask={confirmDeleteTask}
-              onDuplicateTask={handleDuplicateTask}
+              onDeleteTask={isReadOnly ? undefined : confirmDeleteTask}
+              onDuplicateTask={isReadOnly ? undefined : handleDuplicateTask}
               onToggleCheck={handleToggleCheck}
               prioritySettings={prioritySettings}
-              onAddColumn={handleAddColumn}
+              onAddColumn={isReadOnly ? undefined : handleAddColumn}
               onEditColumn={handleEditColumn}
-              onDeleteColumn={handleDeleteColumn}
-              onColumnMove={isDragEnabled ? handleColumnMove : () => { }}
-              onAddTask={handleAddTaskToColumn}
-              isDragEnabled={isDragEnabled}
+              onDeleteColumn={isReadOnly ? undefined : handleDeleteColumn}
+              onColumnMove={isDragEnabled && !isReadOnly ? handleColumnMove : () => { }}
+              onAddTask={isReadOnly ? undefined : handleAddTaskToColumn}
+              isDragEnabled={isDragEnabled && !isReadOnly}
               selectedTaskIds={selectedTaskIds}
               onToggleTaskSelection={handleToggleTaskSelection}
               onSetSelection={setSelectedTaskIds}
               projectId={currentProject.id}
+              isReadOnly={isReadOnly}
             />
           ) : (
             <TableView
               tasks={processedTasks}
               columns={columns}
               onEdit={handleEditTask}
-              onDelete={confirmDeleteTask}
+              onDelete={isReadOnly ? undefined : confirmDeleteTask}
               onToggleCheck={handleToggleCheck}
-              onUpdateStatus={handleUpdateTaskStatus}
-              onUpdatePriority={handleUpdateTaskPriority}
+              onUpdateStatus={isReadOnly ? undefined : handleUpdateTaskStatus}
+              onUpdatePriority={isReadOnly ? undefined : handleUpdateTaskPriority}
               prioritySettings={prioritySettings}
               selectedTaskIds={selectedTaskIds}
               onToggleTaskSelection={handleToggleTaskSelection}
               onSetSelection={setSelectedTaskIds}
               projectId={currentProject.id}
+              isReadOnly={isReadOnly}
             />
           )}
         </div>
@@ -867,6 +933,7 @@ const BoardPage: React.FC = () => {
         defaultStatus={newTaskStatus}
         currentProjectName={currentProject.name}
         projectId={currentProject.id}
+        isReadOnly={isReadOnly}
       />
 
       <ConfirmModal
@@ -882,6 +949,7 @@ const BoardPage: React.FC = () => {
         onClose={() => setIsColumnModalOpen(false)}
         onSave={handleSaveColumn}
         initialColumn={editingColumn}
+        isReadOnly={isReadOnly}
       />
 
       <SummaryModal

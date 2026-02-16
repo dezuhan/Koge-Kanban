@@ -12,9 +12,10 @@ interface SubTaskListProps {
     parentTaskDescription?: string; // Additional context for AI
     isAIEnabled?: boolean;
     onDisableAI?: () => void;
+    isReadOnly?: boolean;
 }
 
-export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, parentTaskTitle, parentTaskDescription, isAIEnabled = false, onDisableAI }) => {
+export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, parentTaskTitle, parentTaskDescription, isAIEnabled = false, onDisableAI, isReadOnly = false }) => {
     const { activeModel, ollamaEndpoint, confirm: globalConfirm, alert: globalAlert } = useApp(); // Access active model from context
     const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
     const [isAILoading, setIsAILoading] = useState(false);
@@ -153,7 +154,7 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
             <div className="flex justify-between items-center mb-2">
                 <label className="block text-sm font-medium text-gray-700">Subtasks</label>
                 <div className="flex gap-2">
-                    {subTasks.length > 0 && (
+                    {subTasks.length > 0 && !isReadOnly && (
                         <button
                             type="button"
                             onClick={clearAllSubTasks}
@@ -164,20 +165,22 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                             Clear
                         </button>
                     )}
-                    <button
-                        type="button"
-                        onClick={() => isAIEnabled && setShowAIContext(!showAIContext)}
-                        disabled={!isAIEnabled || !parentTaskTitle}
-                        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${!isAIEnabled
+                    {!isReadOnly && (
+                        <button
+                            type="button"
+                            onClick={() => isAIEnabled && setShowAIContext(!showAIContext)}
+                            disabled={!isAIEnabled || !parentTaskTitle}
+                            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors ${!isAIEnabled
                                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                                 : showAIContext
                                     ? 'bg-blue-200 text-blue-800'
                                     : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                            }`}
-                        title={isAIEnabled ? "AI Auto-Split subtasks" : "Enable AI to use Auto-Split"}
-                    >
-                        AI Auto-Split
-                    </button>
+                                }`}
+                            title={isAIEnabled ? "AI Auto-Split subtasks" : "Enable AI to use Auto-Split"}
+                        >
+                            AI Auto-Split
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -204,25 +207,27 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                 </div>
             )}
 
-            <div className="subtask-container bg-gray-50 rounded-lg p-3 border border-gray-200 space-y-2">
-                <div className="flex gap-2 mb-3">
-                    <input
-                        type="text"
-                        value={newSubTaskTitle}
-                        onChange={(e) => setNewSubTaskTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addSubTask(e)}
-                        placeholder="Add a subtask..."
-                        className="input-subtask flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                        type="button"
-                        onClick={addSubTask}
-                        disabled={!newSubTaskTitle.trim()}
-                        className="btn-add-subtask bg-blue-600 text-white p-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                    >
-                        <Plus size={18} />
-                    </button>
-                </div>
+            <div className={`subtask-container rounded-lg p-3 border border-gray-200 space-y-2 ${isReadOnly ? 'bg-gray-100/50' : 'bg-gray-50'}`}>
+                {!isReadOnly && (
+                    <div className="flex gap-2 mb-3">
+                        <input
+                            type="text"
+                            value={newSubTaskTitle}
+                            onChange={(e) => setNewSubTaskTitle(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && addSubTask(e)}
+                            placeholder="Add a subtask..."
+                            className="input-subtask flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                            type="button"
+                            onClick={addSubTask}
+                            disabled={!newSubTaskTitle.trim()}
+                            className="btn-add-subtask bg-blue-600 text-white p-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        >
+                            <Plus size={18} />
+                        </button>
+                    </div>
+                )}
 
                 <div className="subtask-list space-y-1 max-h-40 overflow-y-auto">
                     {subTasks.map(st => (
@@ -249,34 +254,40 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                                 </div>
                             ) : (
                                 <>
-                                    <button type="button" onClick={() => toggleSubTask(st.id)} className="btn-toggle-subtask text-gray-400 hover:text-blue-600">
+                                    <button
+                                        type="button"
+                                        onClick={() => !isReadOnly && toggleSubTask(st.id)}
+                                        className={`btn-toggle-subtask transition-colors ${isReadOnly ? 'cursor-default opacity-60' : 'text-gray-400 hover:text-blue-600'}`}
+                                    >
                                         {st.isCompleted ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} />}
                                     </button>
                                     <span
-                                        className={`flex-1 text-sm ${st.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'} cursor-pointer`}
-                                        onDoubleClick={() => startEditing(st)}
-                                        title="Double click to edit"
+                                        className={`flex-1 text-sm ${st.isCompleted ? 'line-through text-gray-400' : 'text-gray-700'} ${isReadOnly ? 'cursor-default' : 'cursor-pointer'}`}
+                                        onDoubleClick={() => !isReadOnly && startEditing(st)}
+                                        title={isReadOnly ? "" : "Double click to edit"}
                                     >
                                         {st.title}
                                     </span>
-                                    <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button
-                                            type="button"
-                                            onClick={() => startEditing(st)}
-                                            className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                                            title="Edit"
-                                        >
-                                            <Edit2 size={14} />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => deleteSubTask(st.id)}
-                                            className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
-                                            title="Delete"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
+                                    {!isReadOnly && (
+                                        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                type="button"
+                                                onClick={() => startEditing(st)}
+                                                className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                                title="Edit"
+                                            >
+                                                <Edit2 size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => deleteSubTask(st.id)}
+                                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                                title="Delete"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>

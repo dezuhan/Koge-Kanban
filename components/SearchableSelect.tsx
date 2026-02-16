@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Plus, Search, Check } from 'lucide-react';
 
+export interface SelectOption {
+  label: string;
+  value: string;
+  group?: string;
+  subLabel?: string;
+  rightLabel?: string;
+  rightLabelColor?: string;
+  disabled?: boolean;
+}
+
 interface SearchableSelectProps {
   value: string;
   onChange: (value: string) => void;
-  options: string[];
+  options: (string | SelectOption)[];
   placeholder?: string;
   label?: string;
   icon?: React.ReactNode;
@@ -14,6 +24,7 @@ interface SearchableSelectProps {
   showSearch?: boolean;
   size?: 'sm' | 'md';
   optionStyles?: Record<string, { bg: string; text: string }>;
+  disabled?: boolean;
 }
 
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -28,7 +39,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   variant = 'light',
   showSearch = true,
   size = 'md',
-  optionStyles
+  optionStyles,
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpwards, setOpenUpwards] = useState(false);
@@ -41,7 +53,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       const windowHeight = window.innerHeight;
       const spaceBelow = windowHeight - rect.bottom;
       const dropdownHeight = showSearch ? 350 : (size === 'sm' ? 200 : 320); // Estimated heights
-      
+
       setOpenUpwards(spaceBelow < dropdownHeight);
     }
   }, [isOpen, showSearch, size]);
@@ -56,40 +68,56 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredOptions = options.filter(option =>
-    option.toLowerCase().includes(searchQuery.toLowerCase())
+  const normalizedOptions: SelectOption[] = options.map(opt =>
+    typeof opt === 'string' ? { label: opt, value: opt } : opt
   );
 
-  const showCreateOption = onCreateOption && searchQuery.trim() !== '' && 
-    !options.some(opt => opt.toLowerCase() === searchQuery.toLowerCase().trim());
+  const filteredOptions = normalizedOptions.filter(option =>
+    option.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    option.value.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (option.subLabel && option.subLabel.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
 
-  const buttonClasses = variant === 'dark' 
-    ? 'bg-[#333333] text-white border-gray-600' 
+  const groupedOptions = filteredOptions.reduce((acc, opt) => {
+    const group = opt.group || 'Default';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(opt);
+    return acc;
+  }, {} as Record<string, SelectOption[]>);
+
+  const showCreateOption = onCreateOption && searchQuery.trim() !== '' &&
+    !normalizedOptions.some(opt => opt.label.toLowerCase() === searchQuery.toLowerCase().trim());
+
+  const selectedOption = normalizedOptions.find(opt => opt.value === value);
+  const displayLabel = selectedOption ? selectedOption.label : value;
+
+  const buttonClasses = variant === 'dark'
+    ? 'bg-[#333333] text-white border-gray-600'
     : 'bg-white text-gray-800 border-gray-200';
 
-  const textClasses = value 
+  const textClasses = value
     ? (variant === 'dark' ? 'text-gray-100' : 'text-gray-800')
     : (variant === 'dark' ? 'text-gray-500' : 'text-gray-400');
 
   return (
     <div className={`searchable-select relative ${className}`} ref={containerRef}>
       {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
-      
+
       <div className="relative">
-        <div 
-          onClick={() => setIsOpen(!isOpen)}
-          className={`flex items-center justify-between w-full rounded-lg border cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all ${
-            size === 'sm' ? 'p-[6px] min-h-[30px]' : 'px-3 py-2 min-h-[40px]'
-          } ${buttonClasses}`}
+        <div
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          className={`flex items-center justify-between w-full rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm transition-all ${disabled ? 'cursor-default grayscale opacity-60 bg-gray-50 border-gray-100' : 'cursor-pointer hover:border-blue-300'
+            } ${size === 'sm' ? 'p-[6px] min-h-[30px]' : 'px-3 py-2 min-h-[40px]'
+            } ${buttonClasses}`}
         >
           <div className="flex items-center gap-2 truncate">
             {icon && <div className="text-gray-400 shrink-0">{icon}</div>}
-             <span 
-               className={`${size === 'sm' ? 'text-[10px]' : 'text-[11px]'} font-black uppercase tracking-wider ${textClasses} ${optionStyles?.[value] ? 'px-3 py-1 rounded' : ''}`}
-               style={optionStyles?.[value] ? { backgroundColor: optionStyles[value].bg, color: optionStyles[value].text } : {}}
-             >
-               {value || placeholder}
-             </span>
+            <span
+              className={`${size === 'sm' ? 'text-[10px]' : 'text-[11px]'} font-black uppercase tracking-wider ${textClasses} ${optionStyles?.[value] ? 'px-3 py-1 rounded' : ''}`}
+              style={optionStyles?.[value] ? { backgroundColor: optionStyles[value].bg, color: optionStyles[value].text } : {}}
+            >
+              {displayLabel || placeholder}
+            </span>
           </div>
           <ChevronDown size={size === 'sm' ? 14 : 16} className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         </div>
@@ -115,30 +143,58 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
             {/* Options List */}
             <div className={`${showSearch ? 'max-h-[240px]' : (size === 'sm' ? 'max-h-[180px]' : 'max-h-[300px]')} overflow-y-auto custom-scrollbar`}>
-              {filteredOptions.length > 0 ? (
-                filteredOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => {
-                      onChange(option);
-                      setIsOpen(false);
-                      setSearchQuery('');
-                    }}
-                    className={`w-full text-left px-4 py-1.5 text-sm flex items-center justify-between transition-all ${
-                      value === option 
-                        ? 'bg-blue-50 text-blue-700 font-bold' 
-                        : 'text-gray-600 hover:bg-blue-50 hover:pl-5'
-                    }`}
-                  >
-                     <span 
-                       className={`truncate ${size === 'sm' ? 'text-[10px]' : 'text-[11px]'} font-black uppercase tracking-wider ${optionStyles?.[option] ? 'px-3 py-1 rounded' : ''}`}
-                       style={optionStyles?.[option] ? { backgroundColor: optionStyles[option].bg, color: optionStyles[option].text } : {}}
-                     >
-                       {option}
-                     </span>
-                    {value === option && <Check size={size === 'sm' ? 14 : 16} strokeWidth={3} className="text-blue-600" />}
-                  </button>
+              {Object.keys(groupedOptions).length > 0 ? (
+                Object.entries(groupedOptions).map(([group, opts]) => (
+                  <div key={group}>
+                    {group !== 'Default' && (
+                      <div className="px-3 py-1 bg-gray-50/50 text-[10px] font-black uppercase tracking-widest text-gray-400 border-y border-gray-100/50 mt-1 first:mt-0">
+                        {group}
+                      </div>
+                    )}
+                    {opts.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={option.disabled}
+                        onClick={() => {
+                          onChange(option.value);
+                          setIsOpen(false);
+                          setSearchQuery('');
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-all ${value === option.value
+                          ? 'bg-blue-50 text-blue-700 font-bold'
+                          : option.disabled ? 'opacity-50 cursor-not-allowed' : 'text-gray-600 hover:bg-blue-50 hover:pl-5'
+                          }`}
+                      >
+                        <div className="flex flex-col min-w-0">
+                          <span
+                            className={`truncate ${size === 'sm' ? 'text-[10px]' : 'text-[11px]'} font-black uppercase tracking-wider ${optionStyles?.[option.value] ? 'px-3 py-1 rounded' : ''}`}
+                            style={optionStyles?.[option.value] ? { backgroundColor: optionStyles[option.value].bg, color: optionStyles[option.value].text } : {}}
+                          >
+                            {option.label}
+                          </span>
+                          {option.subLabel && (
+                            <span className="text-[10px] text-gray-400 font-medium truncate italic">{option.subLabel}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {option.rightLabel && (
+                            <span
+                              className="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                              style={{
+                                backgroundColor: option.rightLabelColor ? `${option.rightLabelColor}20` : '#f3f4f6',
+                                color: option.rightLabelColor || '#6b7280',
+                                border: `1px solid ${option.rightLabelColor ? `${option.rightLabelColor}30` : '#e5e7eb'}`
+                              }}
+                            >
+                              {option.rightLabel}
+                            </span>
+                          )}
+                          {value === option.value && <Check size={size === 'sm' ? 14 : 16} strokeWidth={3} className="text-blue-600" />}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 ))
               ) : !showCreateOption && (
                 <div className="px-3 py-6 text-xs text-gray-400 text-center italic">

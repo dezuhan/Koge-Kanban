@@ -49,6 +49,15 @@ interface AppContextType {
     guestLogin: () => void;
     logout: () => void;
     deleteAccount: (userId: string | number) => Promise<void>;
+    notifications: any[];
+    unreadCount: number;
+    newNotification: any | null;
+    setNewNotification: (n: any | null) => void;
+    setNotifications: React.Dispatch<React.SetStateAction<any[]>>;
+    refreshNotifications: () => Promise<void>;
+    markNotificationRead: (id: number | string) => Promise<void>;
+    removeNotification: (id: number | string) => Promise<void>;
+    isWebSocketEnabled: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -148,6 +157,7 @@ const TEMPLATE_COLUMNS_SEED: Column[] = [
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [projects, setProjects] = useState<Project[] | null>([]);
+    const [isWebSocketEnabled, setIsWebSocketEnabled] = useState(true);
     const [prioritySettings, setPrioritySettings] = useState<PrioritySettings>(DEFAULT_PRIORITY_SETTINGS);
     const [appLoading, setAppLoading] = useState(true);
     const [isAIEnabled, setIsAIEnabled] = useState(false);
@@ -170,7 +180,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Auth State
     const [user, setUser] = useState<User | null>(null);
-
     const isAuthenticated = !!user;
 
     const login = async (username, password) => {
@@ -179,9 +188,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setUser({ ...result.user, token: result.token });
             localStorage.setItem('koge_auth_token', result.token);
             localStorage.setItem('koge_user_info', JSON.stringify(result.user));
-            // Important: Clear guest flag logic so db.ts switches to API mode
             localStorage.removeItem('koge_is_guest');
-            // Reload page to ensure DB service picks up the change
             window.location.reload();
         } else {
             throw new Error(result?.error || 'Login failed');
@@ -214,9 +221,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.removeItem('koge_auth_token');
         localStorage.removeItem('koge_user_info');
         localStorage.removeItem('koge_is_guest');
-        // Reload to clear state cleanly
+        db.disconnectSocket();
         window.location.href = '/';
     };
+
+    // Notifications State
+    const [notifications, setNotifications] = useState<any[]>([]);
+    const [newNotification, setNewNotification] = useState<any | null>(null);
+    const [lastNotifId, setLastNotifId] = useState<number>(0);
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+
+    const refreshNotifications = useCallback(async () => {
+        if (!isAuthenticated || user?.id === 'guest') return;
+        try {
+            const data = await db.notifications.getAll();
+            if (data && data.length > 0) {
+                // Check for new notifications to show toast
+                const latest = data[0]; // Assuming sorted by date DESC
+                if (lastNotifId !== 0 && latest.id > lastNotifId && !latest.isRead) {
+                    setNewNotification(latest);
+                }
+                setLastNotifId(latest.id);
+                setNotifications(data);
+            } else if (data) {
+                setNotifications(data);
+            }
+        } catch (e) {
+            console.error("Failed to refresh notifications", e);
+        }
+    }, [isAuthenticated, user?.id, lastNotifId]);
+
+    const markNotificationRead = async (id: number | string) => {
+        try {
+            await db.notifications.markAsRead(id);
+            setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+        } catch (e) {
+            console.error("Failed to mark notification as read", e);
+        }
+    };
+
+    const removeNotification = async (id: number | string) => {
+        try {
+            await db.notifications.delete(id);
+            setNotifications(prev => prev.filter(n => n.id !== id));
+        } catch (e) {
+            console.error("Failed to delete notification", e);
+        }
+    };
+
+    // Polling for notifications
+    useEffect(() => {
+        if (isAuthenticated && user?.id !== 'guest') {
+            refreshNotifications();
+            const interval = setInterval(refreshNotifications, 10000); // Poll every 10s for "real-time" feel
+            return () => clearInterval(interval);
+        }
+    }, [isAuthenticated, user?.id, refreshNotifications]);
 
     const deleteAccount = async (userId: string | number) => {
         try {
@@ -225,8 +285,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 logout(); // Clear session if deleted
             }
         } catch (error: any) {
-            // If the server says user not found, it means the account is already gone (ghost session)
-            // We should still logout to clear the local state for the user.
             if (error.message?.includes('User not found') || error.message?.includes('404')) {
                 logout();
             } else {
@@ -245,7 +303,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 try {
                     const userInfo = JSON.parse(userInfoStr);
                     setUser({ ...userInfo, token });
-                    // Verify token with backend? For now assume valid or let backend reject requests
                 } catch (e) {
                     localStorage.removeItem('koge_auth_token');
                 }
@@ -478,12 +535,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     useEffect(() => {
         const initApp = async () => {
             try {
-                const [fetchedProjects, fetchedSettings, fetchedAISettings, fetchedRetention] = await Promise.all([
+                const [fetchedProjects, fetchedSettings, fetchedAISettings, fetchedRetention, fetchedHealth] = await Promise.all([
                     db.getProjects(),
                     db.getSettings() as Promise<any>,
                     db.getAISettings(),
-                    db.get('trash_retention_days') as Promise<number | null>
+                    db.get('trash_retention_days') as Promise<number | null>,
+                    db.getHealth()
                 ]);
+
+                if (fetchedHealth && typeof fetchedHealth.websocket === 'boolean') {
+                    setIsWebSocketEnabled(fetchedHealth.websocket);
+                }
 
                 if (fetchedSettings) {
                     setPrioritySettings(fetchedSettings);
@@ -550,6 +612,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         initApp();
     }, []);
 
+    // Helper for browser push notifications
+    const showPushNotification = useCallback((title: string, body: string) => {
+        if (!("Notification" in window)) return;
+
+        if (Notification.permission === "granted") {
+            try {
+                new Notification(title, {
+                    body,
+                    icon: '/favicon.ico',
+                    badge: '/favicon.ico',
+                    silent: false
+                });
+            } catch (e) {
+                console.warn("Native notification failed", e);
+            }
+        }
+    }, []);
+
+    const requestNotificationPermission = useCallback(async () => {
+        if (!("Notification" in window)) return;
+        if (Notification.permission === "default") {
+            try {
+                await Notification.requestPermission();
+            } catch (e) {
+                console.error("Permission request failed", e);
+            }
+        }
+    }, []);
+
+    // Real-time synchronization
+    useEffect(() => {
+        if (isInitialized && isAuthenticated && user && isWebSocketEnabled) {
+            db.initSocket();
+            db.joinUser(user.id);
+
+            const offData = db.onDataUpdate((data) => {
+                if (data.senderId === user.id) return; // Ignore own changes
+
+                if (data.key === 'kanban_projects') {
+                    refreshProjects();
+                } else if (data.key.startsWith('tasks_') || data.key.startsWith('columns_')) {
+                    const projectId = data.key.split('_')[1];
+                    if (currentContext?.projectId === projectId) {
+                        notifyBoardRefresh();
+                    }
+                }
+            });
+
+            const offNotif = db.onNotification((notif) => {
+                refreshNotifications();
+                setNewNotification(notif);
+
+                // Trigger Browser Push Notification
+                showPushNotification("Koge Kanban", notif.message);
+            });
+
+            // Request permission upon auth
+            requestNotificationPermission();
+
+            return () => {
+                offData();
+                offNotif();
+            };
+        }
+    }, [isInitialized, isAuthenticated, user, currentContext?.projectId, refreshProjects, notifyBoardRefresh, refreshNotifications, isWebSocketEnabled]);
+
     // Persistence
     useEffect(() => {
         // Only save projects if application is initialized and not loading, and we have projects
@@ -585,7 +713,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             isSearchOpen, setIsSearchOpen, boardRefreshTrigger, notifyBoardRefresh,
             showConnModal, setShowConnModal, trashRetentionDays, setTrashRetentionDays,
             autoBackupInterval, setAutoBackupInterval, confirm, alert,
-            user, isAuthenticated, login, register, guestLogin, logout, deleteAccount
+            user, isAuthenticated, login, register, guestLogin, logout, deleteAccount,
+            notifications, unreadCount, newNotification, setNewNotification, setNotifications,
+            refreshNotifications, markNotificationRead, removeNotification, isWebSocketEnabled
         }}>
             {children}
             <ConfirmModal

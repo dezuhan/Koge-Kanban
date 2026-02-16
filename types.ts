@@ -40,6 +40,8 @@ export interface Project {
   createdAt: number;
   taskCount?: number; // Optional helper for UI
   color?: string;
+  isShared?: boolean;
+  permissions?: 'owner' | 'editor' | 'view';
 }
 
 export type SortOption = 'date' | 'priority' | 'category' | 'status' | 'dueDate' | 'none';

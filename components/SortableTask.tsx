@@ -14,6 +14,7 @@ interface SortableTaskProps {
   selectedTaskIds?: string[];
   onToggleTaskSelection?: (taskId: string) => void;
   projectId?: string;
+  isReadOnly?: boolean;
 }
 
 export const SortableTask: React.FC<SortableTaskProps> = (props) => {

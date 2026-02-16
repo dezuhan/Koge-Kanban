@@ -7,15 +7,18 @@
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #f1f5f9; 
+  background: #f1f5f9;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1; 
+  background: #cbd5e1;
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; 
+  background: #94a3b8;
 }
 
 /* IntroJS Customization */
@@ -30,8 +33,10 @@
 
 /* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar-mobile {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
 }
 
 @media (min-width: 640px) {
@@ -78,3 +83,17 @@ input[type="date"]::-webkit-datetime-edit-year-field:focus {
   outline: none;
 }
 
+
+@keyframes notification-progress {
+  from {
+    width: 100%;
+  }
+
+  to {
+    width: 0%;
+  }
+}
+
+.animate-notification-progress {
+  animation: notification-progress linear forwards;
+}

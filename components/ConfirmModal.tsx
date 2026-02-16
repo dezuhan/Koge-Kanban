@@ -6,19 +6,19 @@ interface ConfirmModalProps {
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  message: string;
+  message: React.ReactNode;
   type?: 'danger' | 'warning' | 'info';
   confirmText?: string;
   cancelText?: string;
   isAlert?: boolean; // If true, hide cancel button
 }
 
-const ConfirmModal: React.FC<ConfirmModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  title, 
-  message, 
+const ConfirmModal: React.FC<ConfirmModalProps> = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
   type = 'danger',
   confirmText,
   cancelText = 'Cancel',
@@ -58,7 +58,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div 
+      <div
         className="bg-white rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200"
         onClick={(e) => e.stopPropagation()}
       >

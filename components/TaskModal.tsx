@@ -7,7 +7,7 @@ import ConfirmModal from './ConfirmModal';
 import { SubTaskList } from './task-modal/SubTaskList';
 import { MediaUploader } from './task-modal/MediaUploader';
 import { CustomDatePicker } from './CustomDatePicker';
-import { SearchableSelect } from './SearchableSelect';
+import { SearchableSelect, SelectOption } from './SearchableSelect';
 import { useApp } from '../context/AppContext';
 import { getAutoFillPrompt, getDescriptionPrompt, getMarkdownFormatPrompt } from '../fine-tunning/task-modal/prompts';
 import { db } from '../services/db';
@@ -29,6 +29,7 @@ interface TaskModalProps {
   currentProjectName?: string;
   /** Project ID for sharing link */
   projectId?: string;
+  isReadOnly?: boolean;
 }
 
 /**
@@ -40,7 +41,17 @@ interface TaskModalProps {
  * - Media attachments
  * - Priority, Due Date, Assignee, etc.
  */
-const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialTask, columns, defaultStatus, currentProjectName, projectId: propProjectId }) => {
+const TaskModal: React.FC<TaskModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  initialTask,
+  columns,
+  defaultStatus,
+  currentProjectName,
+  projectId: propProjectId,
+  isReadOnly = false
+}) => {
   const { isAIEnabled, disableAI, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -59,6 +70,13 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   const [aiThinking, setAiThinking] = useState<string | null>(null);
 
   const [isShared, setIsShared] = useState(false);
+  const [assigneeId, setAssigneeId] = useState<number | null>(null);
+  const [projectMembers, setProjectMembers] = useState<any[]>([]);
+  const [allOtherUsers, setAllOtherUsers] = useState<any[]>([]);
+  const [showShareConfirm, setShowShareConfirm] = useState(false);
+  const [pendingUserToShare, setPendingUserToShare] = useState<any>(null);
+  const [sharePermission, setSharePermission] = useState<'editor' | 'view'>('editor');
+  const [isSharing, setIsSharing] = useState(false);
 
   // Undo/Redo history for description
   const [descHistory, setDescHistory] = useState<string[]>([]);
@@ -93,6 +111,22 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
     if (projectsData) {
       setProjectOptions(projectsData.map(p => p.name));
+    }
+
+    // Fetch members if projectId exists
+    if (propProjectId) {
+      try {
+        const members = await db.sharing.getMembers(propProjectId);
+        setProjectMembers(members);
+
+        // Also fetch a sample of other users to categorize (In a real app, this would be a search)
+        // For now, let's just get a few non-members
+        const searchResults = await db.users.search(''); // Base search
+        const membersIds = members.map((m: any) => m.id);
+        setAllOtherUsers(searchResults.filter((u: any) => !membersIds.includes(u.id)));
+      } catch (e) {
+        console.error("Failed to fetch members or users", e);
+      }
     }
   };
 
@@ -133,6 +167,94 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     await db.saveColumns(newProject.id, TEMPLATE_COLUMNS);
     await db.saveTasks(newProject.id, []);
   };
+
+  const handleAssigneeSelect = (val: string) => {
+    if (isReadOnly) return;
+
+    // Check if this is a known user ID or just a string
+    const member = projectMembers.find(m => m.username === val || m.id.toString() === val);
+    const otherUser = allOtherUsers.find(u => u.username === val || u.id.toString() === val);
+
+    if (member) {
+      setAssignee(member.username);
+      setAssigneeId(member.id);
+    } else if (otherUser) {
+      // Check if current user is owner of the project
+      const currentProject = projects?.find(p => p.id === propProjectId);
+      const isOwner = currentProject?.permissions === 'owner' || !currentProject?.isShared;
+
+      if (isOwner) {
+        setPendingUserToShare(otherUser);
+        setShowShareConfirm(true);
+      } else {
+        globalAlert({
+          title: 'Permission Denied',
+          message: 'Only the project owner can invite new collaborators.',
+          type: 'warning'
+        });
+      }
+    } else {
+      // It's a manual string entry (legacy)
+      setAssignee(val);
+      setAssigneeId(null);
+    }
+  };
+
+  const confirmShareAndAssign = async (permission: 'editor' | 'view') => {
+    if (!pendingUserToShare || !propProjectId) return;
+    setIsSharing(true);
+    try {
+      await db.sharing.shareProject(propProjectId, pendingUserToShare.id, permission);
+
+      // Update local members list
+      const newMember = { ...pendingUserToShare, permissions: permission };
+      setProjectMembers(prev => [...prev, newMember]);
+      setAllOtherUsers(prev => prev.filter(u => u.id !== pendingUserToShare.id));
+
+      setAssignee(pendingUserToShare.username);
+      setAssigneeId(pendingUserToShare.id);
+
+      globalAlert({
+        title: 'Project Shared',
+        message: `Project shared with ${pendingUserToShare.username}.`,
+        type: 'info'
+      });
+    } catch (e) {
+      console.error("Failed to share project", e);
+      globalAlert({
+        title: 'Error',
+        message: 'Failed to share project with this user.',
+        type: 'danger'
+      });
+    } finally {
+      setIsSharing(false);
+      setShowShareConfirm(false);
+      setPendingUserToShare(null);
+    }
+  };
+
+  const assigneeOptionsMapped: SelectOption[] = [
+    ...projectMembers.map(m => {
+      let color = '#6b7280'; // gray (viewer/default)
+      if (m.permissions === 'owner') color = '#7c3aed'; // purple
+      else if (m.permissions === 'editor') color = '#2563eb'; // blue
+
+      return {
+        label: m.username,
+        value: m.username,
+        group: 'Collaborators',
+        subLabel: m.email || '',
+        rightLabel: m.permissions || 'Member',
+        rightLabelColor: color
+      };
+    }),
+    ...allOtherUsers.map(u => ({
+      label: u.username,
+      value: u.username,
+      group: 'Other Users',
+      subLabel: u.email
+    }))
+  ];
 
   // Track changes to form fields to set isDirty
   useEffect(() => {
@@ -184,7 +306,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
           return;
         }
 
-        if (isDirty) {
+        if (isDirty && !isReadOnly) { // Only prompt for discard if not read-only
           setShowDiscardConfirm(true);
         } else {
           onClose();
@@ -194,7 +316,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, isDirty, showDiscardConfirm, onClose]);
+  }, [isOpen, isDirty, showDiscardConfirm, onClose, isReadOnly]);
 
   const prevIsOpen = useRef(false);
 
@@ -230,7 +352,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
         setSubTasks(initialTask.subTasks || []);
 
-        setIsEditingDesc(!initialTask.description);
+        setIsEditingDesc(!initialTask.description || isReadOnly); // If readOnly, always show preview
 
         if (initialTask.description) {
           setDescHistory([initialTask.description]);
@@ -242,7 +364,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
     }
 
     prevIsOpen.current = isOpen;
-  }, [initialTask, isOpen, columns, defaultStatus, currentProjectName]);
+  }, [initialTask, isOpen, columns, defaultStatus, currentProjectName, isReadOnly]);
 
   const handleShare = async () => {
     if (!initialTask || !propProjectId) return;
@@ -290,6 +412,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
    */
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isReadOnly) return; // Prevent saving if read-only
     const taskData = {
       ...(initialTask ? { id: initialTask.id, createdAt: initialTask.createdAt } : {}),
       title,
@@ -313,7 +436,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
    * Checks for unsaved changes and prompts confirmation if needed.
    */
   const handleCloseRequest = () => {
-    if (isDirty) {
+    if (isDirty && !isReadOnly) {
       setShowDiscardConfirm(true);
     } else {
       onClose();
@@ -332,6 +455,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
   // Helper to update description and push to history
   const updateDescriptionWithHistory = (newDesc: string) => {
+    if (isReadOnly) return;
     const current = descHistory[historyIndex] || '';
     if (newDesc !== current) {
       const newHistory = descHistory.slice(0, historyIndex + 1);
@@ -343,6 +467,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleUndo = () => {
+    if (isReadOnly) return;
     if (historyIndex > 0) {
       const newIndex = historyIndex - 1;
       setHistoryIndex(newIndex);
@@ -351,6 +476,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleRedo = () => {
+    if (isReadOnly) return;
     if (historyIndex < descHistory.length - 1) {
       const newIndex = historyIndex + 1;
       setHistoryIndex(newIndex);
@@ -359,16 +485,19 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isReadOnly) return;
     setDescription(e.target.value);
   };
 
   const handleDescriptionBlur = () => {
+    if (isReadOnly) return;
     // Push to history on blur to avoid too many updates while typing
     updateDescriptionWithHistory(description);
   };
 
   // Helper to insert markdown at cursor position
   const insertMarkdown = useCallback((symbol: string, mode: 'wrap' | 'block' = 'wrap') => {
+    if (isReadOnly) return;
     if (!textareaRef.current) return;
 
     const textarea = textareaRef.current;
@@ -411,9 +540,10 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
 
     // Update history immediately for formatting actions
     updateDescriptionWithHistory(newText);
-  }, [description, descHistory, historyIndex]);
+  }, [description, descHistory, historyIndex, isReadOnly]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isReadOnly) return;
     if (e.ctrlKey || e.metaKey) {
       switch (e.key.toLowerCase()) {
         case 'b':
@@ -436,6 +566,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleAutoFill = async () => {
+    if (isReadOnly) return;
     if (!title) {
       globalAlert({
         title: 'Missing Title',
@@ -526,6 +657,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleReformatMarkdown = async () => {
+    if (isReadOnly) return;
     if (!description) {
       globalAlert({
         title: 'Missing Content',
@@ -585,6 +717,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
   };
 
   const handleGenerateDescription = async () => {
+    if (isReadOnly) return;
     if (!title) {
       globalAlert({
         title: 'Missing Title',
@@ -685,22 +818,23 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
             <div className="form-group">
               <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
               <div className="flex gap-2">
-                <input
-                  required
-                  type="text"
+                <textarea
+                  readOnly={isReadOnly}
+                  id="task-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="input-title flex-1 rounded-lg border border-gray-300 px-3 py-2 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder:text-gray-400"
-                  placeholder="e.g., Fix login bug"
+                  className={`task-title-input w-full p-3 bg-gray-50/50 border border-gray-100 rounded-xl text-lg font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300 resize-none ${isReadOnly ? 'cursor-default' : ''}`}
+                  placeholder="Task title..."
+                  rows={1}
                 />
                 <button
                   type="button"
                   onClick={handleAutoFill}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm ${isAIEnabled
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm ${isAIEnabled && !isReadOnly
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                     }`}
-                  disabled={isAILoading || (isAIEnabled && !title)}
+                  disabled={isAILoading || !isAIEnabled || isReadOnly || !title}
                   title={isAIEnabled ? "Auto-fill details with AI" : "Enable AI to use Auto-Fill"}
                 >
                   {isAILoading && <Loader2 size={16} className="animate-spin" />}
@@ -720,6 +854,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   placeholder="Select project..."
                   icon={<Folder size={18} />}
                   onCreateOption={handleCreateProject}
+                  disabled={isReadOnly}
                 />
               </div>
               <div className="form-group">
@@ -731,6 +866,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   placeholder="Select category..."
                   icon={<Tag size={18} />}
                   onCreateOption={(val) => setCategoryOptions(prev => [...prev, val])}
+                  disabled={isReadOnly}
                 />
               </div>
 
@@ -738,11 +874,12 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 <SearchableSelect
                   label="Assign To"
                   value={assignee}
-                  onChange={setAssignee}
-                  options={assigneeOptions}
+                  onChange={handleAssigneeSelect}
+                  options={assigneeOptionsMapped}
                   placeholder="Select assignee..."
                   icon={<User size={18} />}
-                  onCreateOption={(val) => setAssigneeOptions(prev => [...prev, val])}
+                  onCreateOption={(val) => setAssignee(val)}
+                  disabled={isReadOnly}
                 />
               </div>
 
@@ -751,6 +888,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   label="Due Date"
                   value={dueDate}
                   onChange={setDueDate}
+                  disabled={isReadOnly}
                 />
               </div>
 
@@ -769,6 +907,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   }), {})}
                   placeholder="Select status..."
                   icon={<Activity size={18} className="text-gray-400" />}
+                  disabled={isReadOnly}
                 />
               </div>
               <div className="form-group">
@@ -781,12 +920,13 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   placeholder="Select priority..."
                   icon={<AlertCircle size={18} className="text-gray-400" />}
                   showSearch={false}
+                  disabled={isReadOnly}
                 />
               </div>
             </div>
 
             {/* Media Input */}
-            <MediaUploader media={media} onChange={setMedia} />
+            <MediaUploader media={media} onChange={setMedia} isReadOnly={isReadOnly} />
 
             {/* Description */}
             <div className="form-group">
@@ -796,20 +936,20 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                   <button
                     type="button"
                     onClick={() => isAIEnabled && setShowAIContext(!showAIContext)}
-                    className={`flex items-center gap-1 text-xs px-3 py-1 rounded-lg transition-colors ${!isAIEnabled
+                    className={`flex items-center gap-1 text-xs px-3 py-1 rounded-lg transition-colors ${!isAIEnabled || isReadOnly
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                       : showAIContext
                         ? 'bg-blue-200 text-blue-800'
                         : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                       }`}
                     title={isAIEnabled ? "Generate description with AI" : "Enable AI to use Assist"}
-                    disabled={!isAIEnabled}
+                    disabled={!isAIEnabled || isReadOnly}
                   >
                     AI Assist
                   </button>
 
                   {/* View/Edit Toggle Button */}
-                  {!isEditingDesc && description && (
+                  {!isEditingDesc && description && !isReadOnly && (
                     <button
                       type="button"
                       onClick={() => setIsEditingDesc(true)}
@@ -821,7 +961,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 </div>
               </div>
 
-              {isAIEnabled && showAIContext && (
+              {isAIEnabled && showAIContext && !isReadOnly && (
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-100 rounded-lg animate-fade-in">
                   {aiThinking && (
                     <div className="mb-2 p-2 bg-white/80 border border-blue-100 rounded-lg text-[10px] text-gray-600 max-h-32 overflow-y-auto">
@@ -875,31 +1015,31 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 </div>
               )}
 
-              {isEditingDesc ? (
+              {isEditingDesc && !isReadOnly ? (
                 <div className="relative border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
                   {/* Toolbar */}
                   <div className="flex items-center gap-1 p-1 bg-gray-50 border-b border-gray-200 overflow-x-auto">
-                    <button type="button" onClick={() => insertMarkdown('**')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Bold (Ctrl+B)">
+                    <button type="button" onClick={() => insertMarkdown('**')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Bold (Ctrl+B)" disabled={isReadOnly}>
                       <Bold size={14} />
                     </button>
-                    <button type="button" onClick={() => insertMarkdown('*')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Italic (Ctrl+I)">
+                    <button type="button" onClick={() => insertMarkdown('*')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Italic (Ctrl+I)" disabled={isReadOnly}>
                       <Italic size={14} />
                     </button>
-                    <button type="button" onClick={() => insertMarkdown('~~')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Strikethrough (Ctrl+Shift+S)">
+                    <button type="button" onClick={() => insertMarkdown('~~')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Strikethrough (Ctrl+Shift+S)" disabled={isReadOnly}>
                       <Strikethrough size={14} />
                     </button>
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button type="button" onClick={() => insertMarkdown('#', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Heading 1">
+                    <button type="button" onClick={() => insertMarkdown('#', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="Heading 1" disabled={isReadOnly}>
                       <Heading size={14} />
                     </button>
-                    <button type="button" onClick={() => insertMarkdown('-', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="List Item">
+                    <button type="button" onClick={() => insertMarkdown('-', 'block')} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600" title="List Item" disabled={isReadOnly}>
                       <List size={14} />
                     </button>
                     <div className="w-px h-4 bg-gray-300 mx-1"></div>
-                    <button type="button" onClick={handleUndo} disabled={historyIndex <= 0} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                    <button type="button" onClick={handleUndo} disabled={historyIndex <= 0 || isReadOnly} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
                       <RotateCcw size={14} />
                     </button>
-                    <button type="button" onClick={handleRedo} disabled={historyIndex >= descHistory.length - 1} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
+                    <button type="button" onClick={handleRedo} disabled={historyIndex >= descHistory.length - 1 || isReadOnly} className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-600 disabled:opacity-30">
                       <RotateCw size={14} />
                     </button>
                     <div className="flex-1"></div>
@@ -907,6 +1047,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                       type="button"
                       onClick={() => setIsEditingDesc(false)}
                       className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-lg font-bold hover:bg-blue-200 flex items-center gap-1"
+                      disabled={isReadOnly}
                     >
                       <Check size={12} /> Done
                     </button>
@@ -920,6 +1061,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                     onKeyDown={handleKeyDown}
                     className="input-desc w-full px-3 py-2 h-[450px] outline-none resize-none font-mono text-sm bg-transparent"
                     placeholder="Task details... (Markdown shortcuts enabled: **bold**, *italic*)"
+                    readOnly={isReadOnly}
                   />
 
                   {/* AI Loading Overlay */}
@@ -936,14 +1078,16 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 <div
                   className="desc-preview w-full rounded-lg border border-gray-100 px-4 py-3 h-[500px] overflow-y-auto bg-gray-50/50 prose prose-sm prose-blue max-w-none transition-all relative group"
                 >
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingDesc(true)}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded-lg shadow-sm border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 cursor-pointer"
-                    title="Edit Description"
-                  >
-                    <Edit2 size={14} />
-                  </button>
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingDesc(true)}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white p-1.5 rounded-lg shadow-sm border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-200 cursor-pointer"
+                      title="Edit Description"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  )}
                   {description ? (
                     <ReactMarkdown>{description}</ReactMarkdown>
                   ) : (
@@ -961,6 +1105,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
               parentTaskDescription={description}
               isAIEnabled={isAIEnabled}
               onDisableAI={disableAI}
+              isReadOnly={isReadOnly}
             />
 
             <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
@@ -970,6 +1115,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
                 checked={isCompleted}
                 onChange={(e) => setIsCompleted(e.target.checked)}
                 className="checkbox-completed w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                disabled={isReadOnly}
               />
               <label htmlFor="isCompleted" className="text-sm text-gray-700">Mark main task as completed</label>
             </div>
@@ -981,14 +1127,16 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
               onClick={handleCloseRequest}
               className="btn-cancel px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
             >
-              Cancel
+              {isReadOnly ? 'Close' : 'Cancel'}
             </button>
-            <button
-              onClick={handleSubmit}
-              className="btn-save px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
-            >
-              {initialTask ? 'Save Changes' : 'Create Task'}
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={handleSubmit}
+                className="btn-save px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+              >
+                {initialTask ? 'Save Changes' : 'Create Task'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -999,6 +1147,51 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialT
         onConfirm={handleConfirmDiscard}
         title="Discard Changes?"
         message="You have unsaved changes. Are you sure you want to discard them?"
+        confirmText="Discard"
+        type="danger"
+      />
+
+      <ConfirmModal
+        isOpen={showShareConfirm}
+        onClose={() => { setShowShareConfirm(false); setPendingUserToShare(null); }}
+        onConfirm={() => confirmShareAndAssign(sharePermission)}
+        title="Invite Collaborator"
+        message={
+          <div className="space-y-4">
+            <div className="flex flex-col items-center gap-2 py-4">
+              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
+                <User size={32} />
+              </div>
+              <div className="text-center">
+                <p className="text-gray-900 font-bold">@{pendingUserToShare?.username}</p>
+                <p className="text-xs text-gray-500">{pendingUserToShare?.email}</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 text-center">This user is not a collaborator yet. Grant them access to this project?</p>
+            <div className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+              <label className="text-xs font-black uppercase tracking-widest text-gray-400">Select Access Level</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSharePermission('view'); }}
+                  className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'view' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                >
+                  <span className="font-bold text-sm">Viewer</span>
+                  <span className="text-[10px] text-gray-500">Read only</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setSharePermission('editor'); }}
+                  className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'editor' ? 'border-purple-600 bg-purple-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                >
+                  <span className="font-bold text-sm">Editor</span>
+                  <span className="text-[10px] text-gray-500">Can edit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        }
+        confirmText={isSharing ? "Sharing..." : "Invite & Assign"}
       />
     </>
   );
