@@ -35,6 +35,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
     const [dashboardFilter, setDashboardFilter] = useState<'dueDate' | 'priority'>('dueDate');
     const [dashboardView, setDashboardView] = useState<'grid' | 'list'>('grid');
     const [isRecentTasksCollapsed, setIsRecentTasksCollapsed] = useState(false);
+    const [activeTab, setActiveTab] = useState<'my' | 'shared'>('my');
 
     // Clear AI context when on Dashboard
     useEffect(() => {
@@ -202,13 +203,13 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
                         {isAIEnabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                     </button>
 
-                    <button
+                    {/* <button
                         onClick={() => navigate('/trash')}
                         className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-rose-600 bg-white border border-gray-200 hover:border-rose-100 hover:bg-rose-50/30 rounded-lg transition-all shrink-0"
                         title="Trash Bin"
                     >
                         <Trash2 size={20} />
-                    </button>
+                    </button> */}
 
                     <button
                         onClick={() => navigate('/settings')}
@@ -403,142 +404,158 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onSelectProject, on
             </div>
 
             {/* BOARDS / PROJECTS SECTION */}
-            <div className="flex-1 space-y-12">
-                {/* MY PROJECTS */}
-                <div>
-                    <div className="section-title flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                <Layout size={20} className="text-blue-500" />
-                                My Boards
-                            </h2>
-                            <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">{projects?.filter(p => !p.isShared).length || 0}</span>
-                        </div>
-                    </div>
+            <div className="flex-1">
+                {/* Board Tabs */}
+                <div className="flex items-center gap-8 border-b border-gray-100 mb-8 px-2 overflow-x-auto no-scrollbar">
+                    <button
+                        onClick={() => setActiveTab('my')}
+                        className={`pb-4 text-sm md:text-base font-bold transition-all relative flex items-center gap-2 whitespace-nowrap ${activeTab === 'my' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <Layout size={18} />
+                        My Boards
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'my' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-400'}`}>
+                            {projects?.filter(p => !p.isShared).length || 0}
+                        </span>
+                        {activeTab === 'my' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full animate-in fade-in slide-in-from-bottom-1" />}
+                    </button>
 
-                    {(!projects || projects.filter(p => !p.isShared).length === 0) ? (
-                        <div className="project-list-empty text-center py-16 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-200">
-                            <Folder size={48} className="mx-auto text-gray-300 mb-4" />
-                            <h3 className="text-lg font-bold text-gray-500">No Projects Found</h3>
-                            <button onClick={onAddProject} className="text-blue-600 font-bold text-sm mt-2 hover:underline">+ Create your first project</button>
-                        </div>
-                    ) : (
-                        <div className="project-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {projects?.filter(p => !p.isShared).map(project => {
-                                const styles = getColorStyles(project.color);
-                                return (
-                                    <div
-                                        key={project.id}
-                                        className={`project-card group bg-white rounded-2xl shadow-sm border border-gray-200 ${styles.borderHover} hover:shadow-xl transition-all cursor-pointer flex flex-col h-[15rem] relative overflow-hidden`}
-                                        onClick={() => onSelectProject(project)}
-                                    >
-                                        <div className="project-card-body p-6 flex-1">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className={`p-3 ${styles.iconBg} ${styles.iconText} rounded-lg ${styles.groupHoverBg} group-hover:text-white transition-all duration-300 shadow-sm`}>
-                                                    <Folder size={24} />
-                                                </div>
-                                                <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
-                                                        className={`btn-edit-project p-2 text-gray-400 hover:${styles.iconText} hover:${styles.iconBg} rounded-lg transition`}
-                                                    >
-                                                        <Edit2 size={16} />
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                                                        className="btn-delete-project p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <h3 className="project-name font-bold text-gray-800 text-xl mb-1 truncate">{project.name}</h3>
-                                            <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "Manage your local tasks securely."}</p>
-                                        </div>
-
-                                        <div className="project-card-footer px-6 py-4 border-t border-gray-50 flex justify-between items-center bg-gray-50/30">
-                                            <div className="project-date flex items-center gap-1.5 text-xs text-gray-400 font-bold">
-                                                <Calendar size={12} />
-                                                <span>{new Date(project.createdAt).toLocaleDateString()}</span>
-                                            </div>
-                                            <div className={`flex items-center gap-1 text-xs font-bold ${styles.iconText} group-hover:translate-x-1 transition-transform`}>
-                                                Open Board <ArrowRight size={14} />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
+                    <button
+                        onClick={() => setActiveTab('shared')}
+                        className={`pb-4 text-sm md:text-base font-bold transition-all relative flex items-center gap-2 whitespace-nowrap ${activeTab === 'shared' ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <Users size={18} />
+                        Shared Boards
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTab === 'shared' ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-400'}`}>
+                            {projects?.filter(p => p.isShared).length || 0}
+                        </span>
+                        {activeTab === 'shared' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full animate-in fade-in slide-in-from-bottom-1" />}
+                    </button>
                 </div>
 
-                {/* SHARED PROJECTS */}
-                {projects && projects.some(p => p.isShared) && (
-                    <div>
-                        <div className="section-title flex items-center justify-between mb-6">
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                    <Users size={20} className="text-purple-500" />
-                                    Shared with Me
-                                </h2>
-                                <span className="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full font-bold">{projects.filter(p => p.isShared).length}</span>
+                {activeTab === 'my' ? (
+                    <div className="animate-in fade-in slide-in-from-left-4 duration-300">
+                        {(!projects || projects.filter(p => !p.isShared).length === 0) ? (
+                            <div className="project-list-empty text-center py-20 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-200">
+                                <Folder size={48} className="mx-auto text-gray-300 mb-4 opacity-30" />
+                                <h3 className="text-xl font-bold text-gray-800">No Personal Boards</h3>
+                                <p className="text-gray-500 mt-2 mb-6">Create your own workspace and start managing tasks.</p>
+                                <button onClick={onAddProject} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-500/20">
+                                    + Create New Project
+                                </button>
                             </div>
-                        </div>
-
-                        <div className="project-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {projects.filter(p => p.isShared).map(project => {
-                                const styles = getColorStyles(project.color);
-                                return (
-                                    <div
-                                        key={project.id}
-                                        className={`project-card group bg-white rounded-2xl shadow-sm border border-purple-100 hover:border-purple-300 hover:shadow-xl transition-all cursor-pointer flex flex-col h-[15rem] relative overflow-hidden`}
-                                        onClick={() => onSelectProject(project)}
-                                    >
-                                        <div className="project-card-body p-6 flex-1">
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className={`p-3 bg-purple-50 text-purple-600 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-all duration-300 shadow-sm`}>
-                                                    <Users size={24} />
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <div className="px-2 py-1 rounded-full bg-purple-100 text-purple-600 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                                                        <Sparkles size={10} /> {project.permissions === 'view' ? 'Viewer' : 'Editor'}
+                        ) : (
+                            <div className="project-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {projects?.filter(p => !p.isShared).map(project => {
+                                    const styles = getColorStyles(project.color);
+                                    return (
+                                        <div
+                                            key={project.id}
+                                            className={`project-card group bg-white rounded-2xl shadow-sm border border-gray-200 ${styles.borderHover} hover:shadow-xl transition-all cursor-pointer flex flex-col h-[15rem] relative overflow-hidden`}
+                                            onClick={() => onSelectProject(project)}
+                                        >
+                                            <div className="project-card-body p-6 flex-1">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div className={`p-3 ${styles.iconBg} ${styles.iconText} rounded-lg ${styles.groupHoverBg} group-hover:text-white transition-all duration-300 shadow-sm`}>
+                                                        <Folder size={24} />
                                                     </div>
-                                                    {project.permissions !== 'view' && (
-                                                        <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
-                                                                className="btn-edit-project p-2 text-gray-400 hover:bg-purple-100 hover:text-purple-600 rounded-lg transition"
-                                                            >
-                                                                <Edit2 size={16} />
-                                                            </button>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
-                                                                className="btn-delete-project p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                                                                title="Leave Project"
-                                                            >
-                                                                <Trash2 size={16} />
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                    <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
+                                                            className={`btn-edit-project p-2 text-gray-400 hover:${styles.iconText} hover:${styles.iconBg} rounded-lg transition`}
+                                                        >
+                                                            <Edit2 size={16} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
+                                                            className="btn-delete-project p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <h3 className="project-name font-bold text-gray-800 text-xl mb-1 truncate">{project.name}</h3>
+                                                <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "Manage your local tasks securely."}</p>
+                                            </div>
+
+                                            <div className="project-card-footer px-6 py-4 border-t border-gray-50 flex justify-between items-center bg-gray-50/30">
+                                                <div className="project-date flex items-center gap-1.5 text-xs text-gray-400 font-bold">
+                                                    <Calendar size={12} />
+                                                    <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                                                </div>
+                                                <div className={`flex items-center gap-1 text-xs font-bold ${styles.iconText} group-hover:translate-x-1 transition-transform`}>
+                                                    Open Board <ArrowRight size={14} />
                                                 </div>
                                             </div>
-                                            <h3 className="project-name font-bold text-gray-800 text-xl mb-1 truncate">{project.name}</h3>
-                                            <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "Collaborative board shared with you."}</p>
                                         </div>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                        {(!projects || projects.filter(p => p.isShared).length === 0) ? (
+                            <div className="project-list-empty text-center py-20 bg-gray-50 rounded-[32px] border-2 border-dashed border-gray-200">
+                                <Users size={48} className="mx-auto text-gray-300 mb-4 opacity-30" />
+                                <h3 className="text-xl font-bold text-gray-800">No Shared Boards</h3>
+                                <p className="text-gray-500 mt-2">Boards shared with you by other users will appear here.</p>
+                            </div>
+                        ) : (
+                            <div className="project-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {projects.filter(p => p.isShared).map(project => {
+                                    const styles = getColorStyles(project.color);
+                                    return (
+                                        <div
+                                            key={project.id}
+                                            className={`project-card group bg-white rounded-2xl shadow-sm border border-purple-100 hover:border-purple-300 hover:shadow-xl transition-all cursor-pointer flex flex-col h-[15rem] relative overflow-hidden`}
+                                            onClick={() => onSelectProject(project)}
+                                        >
+                                            <div className="project-card-body p-6 flex-1">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div className={`p-3 bg-purple-50 text-purple-600 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-all duration-300 shadow-sm`}>
+                                                        <Users size={24} />
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="px-2 py-1 rounded-full bg-purple-100 text-purple-600 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                                                            <Sparkles size={10} /> {project.permissions === 'view' ? 'Viewer' : 'Editor'}
+                                                        </div>
+                                                        {project.permissions !== 'view' && (
+                                                            <div className="project-actions flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
+                                                                    className="btn-edit-project p-2 text-gray-400 hover:bg-purple-100 hover:text-purple-600 rounded-lg transition"
+                                                                >
+                                                                    <Edit2 size={16} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); onDeleteProject(project.id); }}
+                                                                    className="btn-delete-project p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                                    title="Leave Project"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <h3 className="project-name font-bold text-gray-800 text-xl mb-1 truncate">{project.name}</h3>
+                                                <p className="project-desc text-sm text-gray-500 line-clamp-2">{project.description || "Collaborative board shared with you."}</p>
+                                            </div>
 
-                                        <div className="project-card-footer px-6 py-4 border-t border-purple-50 flex justify-between items-center bg-purple-50/10">
-                                            <div className="project-date flex items-center gap-1.5 text-xs text-purple-400 font-bold">
-                                                <User size={12} />
-                                                <span>{project.permissions === 'view' ? 'Viewer' : 'Editor'}</span>
-                                            </div>
-                                            <div className={`flex items-center gap-1 text-xs font-bold text-purple-600 group-hover:translate-x-1 transition-transform`}>
-                                                View Board <ArrowRight size={14} />
+                                            <div className="project-card-footer px-6 py-4 border-t border-purple-50 flex justify-between items-center bg-purple-50/10">
+                                                <div className="project-date flex items-center gap-1.5 text-xs text-purple-400 font-bold">
+                                                    <User size={12} />
+                                                    <span>{project.permissions === 'view' ? 'Viewer' : 'Editor'}</span>
+                                                </div>
+                                                <div className={`flex items-center gap-1 text-xs font-bold text-purple-600 group-hover:translate-x-1 transition-transform`}>
+                                                    View Board <ArrowRight size={14} />
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

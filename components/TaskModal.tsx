@@ -52,7 +52,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
   projectId: propProjectId,
   isReadOnly = false
 }) => {
-  const { isAIEnabled, disableAI, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings } = useApp();
+  const { isAIEnabled, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<string>('');
@@ -705,10 +705,9 @@ const TaskModal: React.FC<TaskModalProps> = ({
       }
     } catch (error: any) {
       console.error("AI Error:", error);
-      disableAI();
       globalAlert({
         title: 'AI Error',
-        message: 'AI Service disconnected. Feature disabled.',
+        message: 'The AI Service is currently unreachable. Please check your connection.',
         type: 'danger'
       });
     } finally {
@@ -768,10 +767,9 @@ const TaskModal: React.FC<TaskModalProps> = ({
       }
     } catch (error: any) {
       console.error("AI Error:", error);
-      disableAI();
       globalAlert({
         title: 'AI Error',
-        message: 'AI Service disconnected. Feature disabled.',
+        message: 'The AI Service is currently unreachable. Please check your connection.',
         type: 'danger'
       });
     } finally {
@@ -1104,7 +1102,6 @@ const TaskModal: React.FC<TaskModalProps> = ({
               parentTaskTitle={title}
               parentTaskDescription={description}
               isAIEnabled={isAIEnabled}
-              onDisableAI={disableAI}
               isReadOnly={isReadOnly}
             />
 
@@ -1151,48 +1148,67 @@ const TaskModal: React.FC<TaskModalProps> = ({
         type="danger"
       />
 
-      <ConfirmModal
-        isOpen={showShareConfirm}
-        onClose={() => { setShowShareConfirm(false); setPendingUserToShare(null); }}
-        onConfirm={() => confirmShareAndAssign(sharePermission)}
-        title="Invite Collaborator"
-        message={
-          <div className="space-y-4">
-            <div className="flex flex-col items-center gap-2 py-4">
-              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                <User size={32} />
+      {showShareConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 text-center">
+              <div className="space-y-4">
+                <div className="flex flex-col items-center gap-2 py-4">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
+                    <User size={32} />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">@{pendingUserToShare?.username}</p>
+                    <p className="text-xs text-gray-500">{pendingUserToShare?.email}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 text-center">
+                  This user is not a collaborator yet.<br />Grant them access to this project?
+                </p>
+                <div className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                  <label className="text-xs font-black uppercase tracking-widest text-gray-400">Select Access Level</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setSharePermission('view'); }}
+                      className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'view' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                    >
+                      <span className="font-bold text-sm">Viewer</span>
+                      <span className="text-[10px] text-gray-500">Read only</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setSharePermission('editor'); }}
+                      className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'editor' ? 'border-purple-600 bg-purple-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                    >
+                      <span className="font-bold text-sm">Editor</span>
+                      <span className="text-[10px] text-gray-500">Can edit</span>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-gray-900 font-bold">@{pendingUserToShare?.username}</p>
-                <p className="text-xs text-gray-500">{pendingUserToShare?.email}</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 text-center">This user is not a collaborator yet. Grant them access to this project?</p>
-            <div className="flex flex-col gap-3 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-              <label className="text-xs font-black uppercase tracking-widest text-gray-400">Select Access Level</label>
-              <div className="flex gap-2">
+
+              <div className="flex gap-3 justify-center mt-6">
                 <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setSharePermission('view'); }}
-                  className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'view' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                  onClick={() => { setShowShareConfirm(false); setPendingUserToShare(null); }}
+                  className="flex-1 px-4 py-2.5 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition font-bold text-sm"
                 >
-                  <span className="font-bold text-sm">Viewer</span>
-                  <span className="text-[10px] text-gray-500">Read only</span>
+                  Cancel
                 </button>
                 <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setSharePermission('editor'); }}
-                  className={`flex-1 py-3 rounded-xl border-2 transition-all flex flex-col items-center gap-1 ${sharePermission === 'editor' ? 'border-purple-600 bg-purple-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                  onClick={() => confirmShareAndAssign(sharePermission)}
+                  className="flex-1 px-4 py-2.5 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition font-bold shadow-sm text-sm"
                 >
-                  <span className="font-bold text-sm">Editor</span>
-                  <span className="text-[10px] text-gray-500">Can edit</span>
+                  {isSharing ? "Sharing..." : "Invite & Assign"}
                 </button>
               </div>
             </div>
           </div>
-        }
-        confirmText={isSharing ? "Sharing..." : "Invite & Assign"}
-      />
+        </div>
+      )}
     </>
   );
 };

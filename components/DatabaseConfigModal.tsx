@@ -39,7 +39,7 @@ const DatabaseConfigModal: React.FC<DatabaseConfigModalProps> = ({
                     {/* Subtle pattern overlay */}
                     <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 
-                    <div className="relative z-10 bg-white/10 backdrop-blur-xl p-5 rounded-3xl border border-white/20 shadow-2xl ring-1 ring-white/30">
+                    <div className="relative z-10 bg-white/10 backdrop-blur-xl p-5 rounded-2xl border border-white/20 shadow-2xl ring-1 ring-white/30">
                         <Database className="w-12 h-12 text-white" />
                     </div>
                 </div>

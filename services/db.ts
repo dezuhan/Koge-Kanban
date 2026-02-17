@@ -434,6 +434,16 @@ export const db = {
             apiAdapter.patch(`${getApiBaseUrl()}/project/${projectId}/share/${userId}`, { permissions })
     },
 
+    // Admin Operations (User ID 1 ONLY)
+    admin: {
+        getUsers: async (): Promise<any[]> => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/admin/users`)) || [],
+        createUser: async (userData: any) => apiAdapter.post(`${getApiBaseUrl()}/admin/users`, userData),
+        resetUserPassword: async (id: number, newPassword: string) =>
+            apiAdapter.patch(`${getApiBaseUrl()}/admin/users/${id}/password`, { newPassword }),
+        deleteUser: async (id: number) => apiAdapter.deleteRaw(`${getApiBaseUrl()}/admin/users/${id}`),
+        resetSystem: async () => apiAdapter.post(`${getApiBaseUrl()}/admin/reset-system`),
+    },
+
     getHealth: async () => {
         try {
             const res = await fetch(`${getApiBaseUrl()}/health`);

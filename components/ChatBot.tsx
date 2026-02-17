@@ -18,7 +18,7 @@ interface PendingExecution {
 }
 
 interface MentionSuggestion {
-    type: 'board' | 'task' | 'tag';
+    type: 'board' | 'task' | 'tag' | 'user';
     id: string;
     label: string;
     subLabel?: string;
@@ -27,8 +27,48 @@ interface MentionSuggestion {
 const SUGGESTIONS = [
     { text: "Help me organize tasks today", icon: <OllamaIcon size={14} /> },
     { text: "Create 3 tasks for website project", icon: <Layers size={14} /> },
-    { text: "Summarize my project status", icon: <History size={14} /> }
+    { text: "Read details for my recent task", icon: <History size={14} /> }
 ];
+
+const extractAllJSON = (str: string) => {
+    const results: string[] = [];
+    let braceCount = 0;
+    let bracketCount = 0;
+    let start = -1;
+
+    for (let i = 0; i < str.length; i++) {
+        const char = str[i];
+
+        // Handle strings to avoid counting braces inside strings
+        if (char === '"' && (i === 0 || str[i - 1] !== '\\')) {
+            let j = i + 1;
+            while (j < str.length && (str[j] !== '"' || str[j - 1] === '\\')) j++;
+            i = j;
+            continue;
+        }
+
+        if (char === '{') {
+            if (braceCount === 0 && bracketCount === 0) start = i;
+            braceCount++;
+        } else if (char === '[') {
+            if (braceCount === 0 && bracketCount === 0) start = i;
+            bracketCount++;
+        } else if (char === '}') {
+            braceCount = Math.max(0, braceCount - 1);
+            if (braceCount === 0 && bracketCount === 0 && start !== -1) {
+                results.push(str.substring(start, i + 1));
+                start = -1;
+            }
+        } else if (char === ']') {
+            bracketCount = Math.max(0, bracketCount - 1);
+            if (braceCount === 0 && bracketCount === 0 && start !== -1) {
+                results.push(str.substring(start, i + 1));
+                start = -1;
+            }
+        }
+    }
+    return results;
+};
 
 /**
  * ChatBot Component
@@ -107,6 +147,8 @@ const ChatBot: React.FC = () => {
         }
     }, [messages, currentContext?.projectId]);
 
+    const [userSuggestions, setUserSuggestions] = useState<MentionSuggestion[]>([]);
+
     useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
@@ -119,7 +161,7 @@ const ChatBot: React.FC = () => {
             if (query.includes(' ')) {
                 setShowSuggestions(false);
             } else {
-                const filteredSuggestions: MentionSuggestion[] = [];
+                const combinedSuggestions: MentionSuggestion[] = [];
 
                 // Add Execution Tags
                 const execTags = [
@@ -131,20 +173,26 @@ const ChatBot: React.FC = () => {
                 ];
 
                 execTags.forEach(t => {
-                    if (t.label.includes(query)) {
-                        filteredSuggestions.push(t as any);
+                    if (t.label.includes(query)) combinedSuggestions.push(t as any);
+                });
+
+                // Add User Suggestions
+                userSuggestions.forEach(u => {
+                    if (u.label.toLowerCase().includes(query) || (u.subLabel && u.subLabel.toLowerCase().includes(query))) {
+                        combinedSuggestions.push(u);
                     }
                 });
 
                 projects?.forEach(p => {
                     if (p.name.toLowerCase().includes(query)) {
-                        filteredSuggestions.push({ type: 'board', id: p.id, label: p.name });
+                        combinedSuggestions.push({ type: 'board', id: p.id, label: p.name });
                     }
                 });
+
                 if (currentContext) {
                     currentContext.tasks.forEach(t => {
                         if (t.title.toLowerCase().includes(query)) {
-                            filteredSuggestions.push({
+                            combinedSuggestions.push({
                                 type: 'task',
                                 id: t.id,
                                 label: t.title,
@@ -153,8 +201,8 @@ const ChatBot: React.FC = () => {
                         }
                     });
                 }
-                if (filteredSuggestions.length > 0) {
-                    setSuggestions(filteredSuggestions); // Remove .slice(0, 8) to show all
+                if (combinedSuggestions.length > 0) {
+                    setSuggestions(combinedSuggestions);
                     setShowSuggestions(true);
                     setSuggestionIndex(0);
                 } else {
@@ -164,7 +212,34 @@ const ChatBot: React.FC = () => {
         } else {
             setShowSuggestions(false);
         }
-    }, [inputValue, projects, currentContext]);
+    }, [inputValue, projects, currentContext, userSuggestions]);
+
+    // Async Fetch Users for mentions
+    useEffect(() => {
+        const lastAtIdx = inputValue.lastIndexOf('@');
+        if (lastAtIdx !== -1 && (lastAtIdx === 0 || inputValue[lastAtIdx - 1] === ' ')) {
+            const query = inputValue.slice(lastAtIdx + 1).toLowerCase();
+            const fetchUsers = async () => {
+                try {
+                    const results = await db.users.search(query);
+                    const mapped: MentionSuggestion[] = results.map((u: any) => ({
+                        type: 'user',
+                        id: u.id.toString(),
+                        label: u.username,
+                        subLabel: u.email
+                    }));
+                    setUserSuggestions(mapped);
+                } catch (e) {
+                    console.error("Failed to fetch mention users", e);
+                }
+            };
+
+            const timeoutId = setTimeout(fetchUsers, 100);
+            return () => clearTimeout(timeoutId);
+        } else {
+            setUserSuggestions([]);
+        }
+    }, [inputValue]);
 
     // Event Handlers
     const insertSuggestion = (suggestion: MentionSuggestion) => {
@@ -176,6 +251,8 @@ const ChatBot: React.FC = () => {
         let tag = '';
         if (suggestion.type === 'tag') {
             tag = `@${suggestion.label}`;
+        } else if (suggestion.type === 'user') {
+            tag = `@[User: ${suggestion.label}]`;
         } else if (suggestion.type === 'board') {
             tag = `@[${suggestion.label}]`;
         } else {
@@ -294,7 +371,7 @@ ${currentContext.tasks.length > 0
 
     const processAIResponse = (content: string, userText: string) => {
         // Only process actions if the user explicitly used an execution tag
-        const hasTag = /@(create|update|delete)\b/i.test(userText);
+        const hasTag = /@(create|update|delete|read)\b/i.test(userText);
         if (!hasTag) return;
 
         // Helper to extract actions from parsed JSON
@@ -305,12 +382,15 @@ ${currentContext.tasks.length > 0
             return [];
         };
 
-        // Look for all JSON blocks in the content
-        const jsonBlocks = content.match(/```json\s*([\s\S]*?)\s*```/g) || [];
+        // Clean content: remove <think> blocks for parsing
+        const cleanContent = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+        // Look for JSON blocks in fences
+        const jsonBlocks: RegExpMatchArray | null = cleanContent.match(/```json\s*([\s\S]*?)\s*```/g);
         const allActions: any[] = [];
 
-        if (jsonBlocks.length > 0) {
-            jsonBlocks.forEach(block => {
+        if (jsonBlocks && jsonBlocks.length > 0) {
+            jsonBlocks.forEach((block: string) => {
                 try {
                     const rawJson = block.replace(/```json\s*|\s*```/g, '');
                     const parsed = JSON.parse(rawJson);
@@ -319,24 +399,28 @@ ${currentContext.tasks.length > 0
                     console.error("Failed to parse AI JSON block:", e);
                 }
             });
-        } else {
-            // Fallback for JSON without fences
-            // Try to match anything that looks like a JSON object or array
-            const jsonRegex = /({[\s\S]*"action"[\s\S]*})|({[\s\S]*"actions"[\s\S]*})|(\[[\s\S]*"action"[\s\S]*\])/;
-            const fallbackMatch = content.match(jsonRegex);
-            if (fallbackMatch) {
+        }
+
+        // Also check cleanContent itself if it's a naked JSON object/array
+        // or if we haven't found anything yet
+        if (allActions.length === 0) {
+            // Use the more robust extractor
+            const jsonMatches = extractAllJSON(cleanContent);
+            jsonMatches.forEach(match => {
                 try {
-                    const parsed = JSON.parse(fallbackMatch[0]);
-                    allActions.push(...extractActions(parsed));
+                    if (match.includes('"action"') || match.includes('"actions"')) {
+                        const parsed = JSON.parse(match);
+                        allActions.push(...extractActions(parsed));
+                    }
                 } catch (e) {
-                    console.error("Failed to parse AI fallback JSON:", e);
+                    console.error("Manual JSON parse fail:", e);
                 }
-            }
+            });
         }
 
         if (allActions.length > 0) {
             // Filter for valid board actions
-            const validActionTypes = ['create_task', 'update_task', 'delete_task'];
+            const validActionTypes = ['create_task', 'update_task', 'delete_task', 'read_task'];
             const filteredActions = allActions.filter((a: any) => validActionTypes.includes(a.action));
 
             if (filteredActions.length > 0) {
@@ -345,6 +429,7 @@ ${currentContext.tasks.length > 0
                     if (a.action === 'create_task') desc = `Create task: "${a.data?.title || 'New Task'}"`;
                     else if (a.action === 'update_task') desc = `Update task: "${a.data?.title || a.data?.id || 'Task'}"`;
                     else if (a.action === 'delete_task') desc = `Delete task: "${a.data?.title || a.data?.id || 'Task'}"`;
+                    else if (a.action === 'read_task') desc = `Fetch details for task: "${a.data?.title || a.data?.id || 'Task'}"`;
 
                     return {
                         action: a.action,
@@ -433,6 +518,23 @@ ${currentContext.tasks.length > 0
                         successCount++;
                     } else {
                         summary.push(`*Failed*: Could not find card "${targetId || targetTitle}" to delete in **${pName}**`);
+                    }
+                } else if (item.action === 'read_task') {
+                    const targetId = item.data.id || item.data.taskId;
+                    const task = tasks.find(t => t.id === targetId || t.title.toLowerCase() === item.data.title?.toLowerCase());
+                    if (task) {
+                        const taskDetails = `
+**Task Details: ${task.title}**
+- **Status**: ${task.status}
+- **Priority**: ${task.priority}
+- **Category**: ${task.category}
+- **Description**: ${task.description || "_No description provided._"}
+- **Subtasks**: ${task.subTasks?.length > 0 ? task.subTasks.map(st => `\n  - [${st.isCompleted ? 'x' : ' '}] ${st.title}`).join('') : "_None_"}
+`.trim();
+                        summary.push(taskDetails);
+                        successCount++;
+                    } else {
+                        summary.push(`*Failed*: Could not find task "${targetId || item.data.title}"`);
                     }
                 }
             }
@@ -586,16 +688,41 @@ ${currentContext.tasks.length > 0
                                 )}
 
                                 {messages.filter(m => !m.hidden).map((msg, idx) => {
-                                    const isOnlyJSON = msg.role === 'assistant' &&
-                                        ((msg.content.trim().startsWith('```json') && msg.content.trim().endsWith('```')) || (msg.content.trim().startsWith('{') && msg.content.trim().endsWith('}'))) &&
-                                        (msg.content.includes('"action"') || msg.content.includes('"actions"'));
+                                    // Remove <think> blocks from content before processing or hide them in rendering
+                                    const cleanMsgContent = msg.content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
+                                    // If message consists ONLY of JSON objects/arrays (plus whitespace), hide it 
+                                    const jsonBlocks = extractAllJSON(cleanMsgContent);
+                                    let textWithoutJSON = cleanMsgContent;
+                                    jsonBlocks.forEach(block => {
+                                        textWithoutJSON = textWithoutJSON.split(block).join('');
+                                    });
+
+                                    // Also strip common markdown code block wrappers
+                                    const textForCheck = textWithoutJSON
+                                        .replace(/```(json|JSON)?/g, '')
+                                        .replace(/```/g, '')
+                                        .trim();
+
+                                    const hasActionKeyword = cleanMsgContent.includes('"action"') || cleanMsgContent.includes('"actions"');
+                                    const isOnlyJSON = msg.role === 'assistant' &&
+                                        textForCheck.length === 0 &&
+                                        jsonBlocks.length > 0 &&
+                                        hasActionKeyword;
+
+                                    // Check if this specific message consists only of successfully extracted actions
+                                    // If it's ONLY JSON actions, we hide the entire bubble because it's redundant (handled by Action Cards/Summaries)
                                     if (isOnlyJSON) return null;
 
                                     // Process @ mentions into markdown links for custom rendering, hiding the #ID part from display
-                                    const processedContent = msg.content
+                                    const processedContent = cleanMsgContent
                                         .replace(/@\[(.*?)(?:#(.*?))?\]/g, '[$1](#mention)')
                                         .replace(/@(create|update|delete|read|all)\b/g, '[@$1](#exec-tag)');
+
+                                    // Final safety check: if after processing we have nothing meaningful to show, skip the bubble
+                                    if (msg.role === 'assistant' && processedContent.replace(/```(json|JSON)?/g, '').replace(/```/g, '').trim().length === 0 && jsonBlocks.length > 0) {
+                                        return null;
+                                    }
 
                                     return (
                                         <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} group animate-in fade-in slide-in-from-bottom-2 duration-300`}>
@@ -640,9 +767,12 @@ ${currentContext.tasks.length > 0
                                                                 }
                                                                 return <a href={href} {...props}>{children}</a>;
                                                             },
-                                                            pre: ({ children }) => {
+                                                            pre: ({ children, ...props }) => {
                                                                 const content = String((children as any)?.props?.children || '');
-                                                                if (content.includes('"action"') || content.includes('"actions"')) return null;
+                                                                const isActionBlock = content.includes('"action"') || content.includes('"actions"');
+                                                                // Hide the raw code block if it's an action block. 
+                                                                // These are handled by the system's Action Card or Execution Summary.
+                                                                if (isActionBlock) return null;
                                                                 return <pre className="bg-gray-900 text-white p-3 rounded-lg my-2 overflow-x-auto">{children}</pre>;
                                                             }
                                                         }}

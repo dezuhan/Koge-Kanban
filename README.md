@@ -49,8 +49,20 @@ Open `http://localhost:5173` in your browser and you're ready to roll.
 
 ### Build your image
 ```bash
-docker build -t koge-kanban .
+docker build -t dezuhan/koge-kanban:latest .
 ```
+
+### Push to Registry (Docker Hub)
+First, make sure you are logged in:
+```bash
+docker login
+```
+Then push the image:
+```bash
+docker push dezuhan/koge-kanban:latest
+```
+
+*Tip: You can also use the helper script: `powershell ./scripts/docker-push.ps1`*
 
 ### Run with Docker Compose
 ```bash

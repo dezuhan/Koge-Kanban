@@ -541,7 +541,8 @@ const BoardPage: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-ollama-endpoint': ollamaEndpoint
+          'x-ollama-endpoint': ollamaEndpoint,
+          'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
         },
         body: JSON.stringify({ prompt, model: activeModel })
       });
@@ -554,10 +555,9 @@ const BoardPage: React.FC = () => {
     } catch (error) {
       console.error("Summary Error:", error);
       setSummaryContent("Failed to generate summary. AI service disconnected.");
-      disableAI(); // Automatically disable AI features
       globalAlert({
         title: 'AI Service Unreachable',
-        message: 'AI Service Unreachable. AI features have been disabled.',
+        message: 'Could not connect to the AI Service. Please check your connection or service status.',
         type: 'danger'
       });
     } finally {
@@ -666,22 +666,6 @@ const BoardPage: React.FC = () => {
                       ))}
                     </div>
                     <div className="border-t border-gray-50 mt-1 pt-1">
-                      <button
-                        onClick={() => setIsProjectModalOpen(true)}
-                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-                      >
-                        <Settings size={16} />
-                        {isReadOnly ? 'Viewing Settings' : 'Project Settings'}
-                      </button>
-                      {!isReadOnly && (
-                        <button
-                          onClick={handleAddColumn}
-                          className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 border-t border-gray-50 transition-colors"
-                        >
-                          <Layout size={16} />
-                          Add Column
-                        </button>
-                      )}
                       <button
                         disabled={isAILoading}
                         onClick={() => {
@@ -794,13 +778,13 @@ const BoardPage: React.FC = () => {
               <Settings size={18} />
             </button>
 
-            <button
+            {/* <button
               onClick={() => navigate('/trash')}
-              className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-rose-600 bg-white border border-gray-200 hover:border-rose-100 hover:bg-rose-50/30 rounded-lg transition-all shrink-0"
+              className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-rose-600 bg-white border border-gray-200 hover:border-rose-100 hover:bg-rose-50/30 rounded-lg transition-all shrink-0 invisible"
               title="Trash Bin"
             >
               <Trash2 size={18} />
-            </button>
+            </button> */}
 
             <button
               onClick={() => isAIEnabled && setIsChatOpen(!isChatOpen)}

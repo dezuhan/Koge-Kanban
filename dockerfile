@@ -1,13 +1,13 @@
 # Stage 1: Build the React Application
-FROM node:20-alpine AS build
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies including devDependencies for build
-RUN npm install
+# Install all dependencies precisely from lockfile
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -15,8 +15,8 @@ COPY . .
 # Build the React app
 RUN npm run build
 
-# Stage 2: Setup the Node.js Server
-FROM node:20-alpine
+# Stage 2: Install Production Dependencies
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
@@ -26,17 +26,36 @@ RUN apk add --no-cache python3 make g++
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm install --omit=dev
+# Install only production dependencies precisely from lockfile
+RUN npm ci --omit=dev
 
-# Copy the built frontend from the previous stage
-COPY --from=build /app/dist ./dist
+# Stage 3: Final Production Image
+FROM node:20-alpine
 
-# Copy the server file
-COPY server.js .
+WORKDIR /app
 
-# Expose the port
+# Set environment to production
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Copy built frontend from builder stage
+COPY --from=builder /app/dist ./dist
+
+# Copy production node_modules from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy server files
+COPY server.js ./
+COPY package.json ./
+
+# Create database directory and set permissions
+RUN mkdir -p /app/db && chown -R node:node /app/db
+
+# Use non-root user provided by the node image
+USER node
+
+# Expose the application port
 EXPOSE 3000
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import BoardPage from './pages/BoardPage';
 import SettingsPage from './pages/SettingsPage';
+import AdminPage from './pages/AdminPage';
 import TrashPage from './pages/TrashPage';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -17,22 +18,23 @@ import ErrorBoundary from './components/ErrorBoundary';
  * - /board/:projectId/task/:taskId : Deep link to a specific task on a board
  */
 const App: React.FC = () => {
-  return (
-    <ErrorBoundary>
-      <AppProvider>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/board/:projectId" element={<BoardPage />} />
-            <Route path="/board/:projectId/task/:taskId" element={<BoardPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/trash" element={<TrashPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </AppProvider>
-    </ErrorBoundary>
-  );
+    return (
+        <ErrorBoundary>
+            <AppProvider>
+                <Routes>
+                    <Route element={<Layout />}>
+                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/board/:projectId" element={<BoardPage />} />
+                        <Route path="/board/:projectId/task/:taskId" element={<BoardPage />} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/admin" element={<AdminPage />} />
+                        {/* <Route path="/trash" element={<TrashPage />} /> */}
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Route>
+                </Routes>
+            </AppProvider>
+        </ErrorBoundary>
+    );
 };
 
 export default App;

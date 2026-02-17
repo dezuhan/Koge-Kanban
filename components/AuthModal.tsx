@@ -69,7 +69,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             const isOk = await db.testConnection(normalized);
             if (isOk) {
                 localStorage.setItem('koge_api_base_url', normalized);
-                setMode('signup'); // Default to signup as requested
+                setMode('login'); // Default to login as users likely already have an account
             } else {
                 setError('Could not connect to database at this endpoint. Please ensure the server is running.');
             }
@@ -178,7 +178,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {mode === 'login' && (
                         <form onSubmit={handleLogin} className="space-y-4">
                             <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Username</label>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Username or Email</label>
                                 <div className="relative group">
                                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors">
                                         <User size={18} />
@@ -188,7 +188,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                         value={username}
                                         onChange={e => setUsername(e.target.value)}
                                         className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all placeholder:text-slate-300"
-                                        placeholder="Enter your username"
+                                        placeholder="Enter your username or email"
                                         required
                                     />
                                 </div>
