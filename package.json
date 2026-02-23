@@ -1,6 +1,6 @@
 {
   "name": "koge-kanban",
-  "version": "3.0.1",
+  "version": "3.2.1",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm:server\" \"npm:client\"",

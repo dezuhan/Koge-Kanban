@@ -264,7 +264,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     database: !!db,
     websocket: ENABLE_WEBSOCKET,
-    version: '3.0.1'
+    version: '3.2.1'
   });
 });
 
