@@ -15,8 +15,27 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Helper: Parse YYYY-MM-DD as local date without timezone shifts
+  const parseISO = (iso: string): Date => {
+    if (!iso) return new Date();
+    const parts = iso.split('-');
+    if (parts.length === 3) {
+      const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  };
+
+  // Helper: Format local date to YYYY-MM-DD
+  const formatISO = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   // Parse current date or default to today
-  const selectedDate = value ? new Date(value) : new Date();
+  const selectedDate = value ? parseISO(value) : new Date();
   const [viewDate, setViewDate] = useState(new Date(selectedDate));
 
   // Year grid start year (for 'years' view)
@@ -25,7 +44,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
   // Sync internal input text when external value changes
   useEffect(() => {
     if (value) {
-      const date = new Date(value);
+      const date = parseISO(value);
       if (!isNaN(date.getTime())) {
         const formatted = date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
         setInputValue(formatted);
@@ -49,21 +68,9 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
   const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
-  const formatDateToISO = (date: Date) => {
-    const d = new Date(date);
-    let month = '' + (d.getMonth() + 1);
-    let day = '' + d.getDate();
-    const year = d.getFullYear();
-
-    if (month.length < 2) month = '0' + month;
-    if (day.length < 2) day = '0' + day;
-
-    return [year, month, day].join('-');
-  };
-
   const handleDateClick = (day: number) => {
     const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
-    onChange(formatDateToISO(newDate));
+    onChange(formatISO(newDate));
     setIsOpen(false);
   };
 
@@ -81,7 +88,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
       if (year > 1000 && month >= 0 && month < 12 && day > 0 && day <= 31) {
         const parsedDate = new Date(year, month, day);
         if (!isNaN(parsedDate.getTime())) {
-          onChange(formatDateToISO(parsedDate));
+          onChange(formatISO(parsedDate));
           setViewDate(new Date(parsedDate));
         }
       }
@@ -274,7 +281,16 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({ value, onCha
           <div className="border-t border-gray-100 mt-2 pt-2 flex justify-between">
             <button
               type="button"
-              onClick={() => { setViewDate(new Date()); handleDateClick(new Date().getDate()); setViewMode('days'); }}
+              onClick={() => {
+                const today = new Date();
+                const y = today.getFullYear();
+                const m = today.getMonth();
+                const d = today.getDate();
+                setViewDate(new Date(y, m, d));
+                onChange(formatISO(new Date(y, m, d)));
+                setIsOpen(false);
+                setViewMode('days');
+              }}
               className="text-[10px] font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
             >
               Today
