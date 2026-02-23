@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { SubTask } from '../../types';
-import { Plus, CheckSquare, Square, Trash2, Wand2, Loader2, Edit2, Check, X } from 'lucide-react';
-import { OllamaIcon } from '../OllamaIcon';
+import { Plus, CheckSquare, Square, Trash2, Wand2, Loader2, Edit2, Check, X, Sparkles } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { getSubtasksChecklistPrompt } from '../../fine-tunning/subtasks/checklist-prompt';
 
@@ -202,7 +201,7 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                         className="w-10 h-10 flex justify-center items-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70"
                         title="Generate Checklist"
                     >
-                        {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <OllamaIcon size={16} />}
+                        {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                     </button>
                 </div>
             )}

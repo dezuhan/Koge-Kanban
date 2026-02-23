@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Loader2, Bot, User, Wand2, MessageSquare, History, PanelRightClose, CheckCircle2, AlertCircle, Layers, Folder, Hash, Bookmark, Zap, RefreshCw, Trash2 } from 'lucide-react';
-import { OllamaIcon } from './OllamaIcon';
+import { X, Send, Loader2, Bot, User, Wand2, MessageSquare, History, PanelRightClose, CheckCircle2, AlertCircle, Layers, Folder, Hash, Bookmark, Zap, RefreshCw, Trash2, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../context/AppContext';
 import { ChatMessage, Task, Priority } from '../types';
@@ -25,7 +24,7 @@ interface MentionSuggestion {
 }
 
 const SUGGESTIONS = [
-    { text: "Help me organize tasks today", icon: <OllamaIcon size={14} /> },
+    { text: "Help me organize tasks today", icon: <Sparkles size={14} /> },
     { text: "Create 3 tasks for website project", icon: <Layers size={14} /> },
     { text: "Read details for my recent task", icon: <History size={14} /> }
 ];
@@ -619,8 +618,8 @@ ${currentContext.tasks.length > 0
             }`}>
             <div className="px-4 py-4 border-b border-gray-200 flex items-center justify-between bg-white sticky top-0 z-10 min-h-[73px] shadow-sm">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-white shadow-sm overflow-hidden pt-1.5 px-1 pb-0">
-                        <OllamaIcon size={22} />
+                    <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-lg overflow-hidden">
+                        <Sparkles size={22} className="text-white" />
                     </div>
                     <div className="flex flex-col">
                         <div className="flex items-center gap-2">

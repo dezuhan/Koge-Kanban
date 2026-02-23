@@ -45,6 +45,17 @@
   }
 }
 
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+
 /* Custom Date Picker Styling */
 input[type="date"]::-webkit-calendar-picker-indicator {
   position: absolute;

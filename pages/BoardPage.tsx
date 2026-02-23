@@ -72,9 +72,7 @@ const BoardPage: React.FC = () => {
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [isTogglingAI, setIsTogglingAI] = useState(false);
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
-  const [isProjectFilterOpen, setIsProjectFilterOpen] = useState(false);
-  const [isCategoryFilterOpen, setIsCategoryFilterOpen] = useState(false);
-  const [isSortFilterOpen, setIsSortFilterOpen] = useState(false);
+
   const { isAILoading } = useApp();
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryContent, setSummaryContent] = useState('');
@@ -105,7 +103,12 @@ const BoardPage: React.FC = () => {
     if (proj) {
       console.log(`[BoardPage] Found Project:`, proj);
       setCurrentProject(proj);
+      // Reset filters when project changes
+      setFilterProject('All');
+      setFilterCategory('All');
+      setSortBy('none');
     } else {
+
       console.log(`[BoardPage] Project NOT found.`);
       if (projects && projects.length > 0) {
         console.warn(`[BoardPage] Redirecting to home because project list is populated but ID not found.`);
@@ -816,7 +819,8 @@ const BoardPage: React.FC = () => {
 
       {/* Toolbar */}
       <div className="app-toolbar px-4 md:px-6 py-2 md:py-3 flex items-center justify-between gap-4 sticky top-0 bg-slate-50/80 backdrop-blur-md z-[25] border-b border-gray-100">
-        <div className="filters flex items-center gap-3 md:gap-6 text-sm text-gray-600 flex-1 min-w-0 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+        <div className="filters flex items-center gap-3 md:gap-6 text-sm text-gray-600 flex-1 min-w-0 pb-1 md:pb-0">
+
           {/* Project Filter */}
           <div className="filter-project min-w-[140px] md:min-w-[160px] shrink-0">
             <SearchableSelect

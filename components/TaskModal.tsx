@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, Priority, SubTask, Column, Project } from '../types';
-import { X, Calendar, User, Wand2, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough, Folder, Tag, Activity, AlertCircle, Share2 } from 'lucide-react';
-import { OllamaIcon } from './OllamaIcon';
+import { X, Calendar, User, Wand2, Loader2, RotateCcw, RotateCw, Edit2, Bold, Italic, List, Check, Heading, Strikethrough, Folder, Tag, Activity, AlertCircle, Share2, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import ConfirmModal from './ConfirmModal';
 import { SubTaskList } from './task-modal/SubTaskList';
@@ -821,14 +820,14 @@ const TaskModal: React.FC<TaskModalProps> = ({
                   id="task-title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className={`task-title-input w-full p-3 bg-gray-50/50 border border-gray-100 rounded-xl text-lg font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300 resize-none ${isReadOnly ? 'cursor-default' : ''}`}
+                  className={`task-title-input w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all placeholder:text-gray-300 resize-none h-[42px] ${isReadOnly ? 'cursor-default bg-gray-50/50 border-gray-100' : ''}`}
                   placeholder="Task title..."
                   rows={1}
                 />
                 <button
                   type="button"
                   onClick={handleAutoFill}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm ${isAIEnabled && !isReadOnly
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all shadow-sm whitespace-nowrap shrink-0 ${isAIEnabled && !isReadOnly
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                     }`}
@@ -984,7 +983,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
                       className="flex-1 flex justify-center items-center gap-2 text-xs bg-gray-100 text-gray-700 py-1.5 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-70 border border-gray-200"
                       title="Format text to Markdown without changing words"
                     >
-                      {isAILoading ? <Loader2 size={12} className="animate-spin" /> : <OllamaIcon size={12} />}
+                      {isAILoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
                       Format Only
                     </button>
                     <button
@@ -994,7 +993,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
                       className="w-10 h-10 flex justify-center items-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70"
                       title="Generate Description"
                     >
-                      {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <OllamaIcon size={16} />}
+                      {isAILoading ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                     </button>
                   </div>
                 </div>

@@ -605,7 +605,33 @@ app.get('/api/tasks/global', authenticateToken, (req, res) => {
 
     const rows = Array.from(rowMap.values());
 
-    // Flatten all task arrays into one single array AND inject projectId from the key
+    // 1. Fetch all columns to resolve status names
+    const ownColumns = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key LIKE 'columns_%'").all(req.user.id);
+    const sharedColumns = [];
+    for (const info of sharedInfos) {
+      const row = db.prepare("SELECT key, value FROM kv_store WHERE user_id = ? AND key = ?").get(info.owner_id, `columns_${info.project_id}`);
+      if (row) sharedColumns.push(row);
+    }
+
+    const columnMap = new Map();
+    // Pre-populate with Template Columns
+    [
+      { id: 'Draft', title: 'DRAFT' },
+      { id: 'To Do', title: 'TO-DO' },
+      { id: 'On Going', title: 'ON GOING' },
+      { id: 'Complete', title: 'COMPLETE' }
+    ].forEach(c => columnMap.set(c.id, c.title));
+
+    [...ownColumns, ...sharedColumns].forEach(row => {
+      try {
+        const cols = JSON.parse(row.value);
+        if (Array.isArray(cols)) {
+          cols.forEach(c => columnMap.set(c.id, c.title));
+        }
+      } catch (e) { }
+    });
+
+    // 2. Flatten all task arrays into one single array AND inject projectId from the key
     const allTasks = rows.reduce((acc, row) => {
       try {
         if (!row || !row.key) return acc;
@@ -616,6 +642,7 @@ app.get('/api/tasks/global', authenticateToken, (req, res) => {
         if (Array.isArray(tasks)) {
           const tasksWithPid = tasks.map(t => ({
             ...t,
+            status: columnMap.get(t.status) || t.status, // Resolve status ID to Title
             _projectId: projectId
           }));
           return [...acc, ...tasksWithPid];
@@ -626,6 +653,7 @@ app.get('/api/tasks/global', authenticateToken, (req, res) => {
         return acc;
       }
     }, []);
+
 
     res.json(allTasks);
   } catch (error) {
