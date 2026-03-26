@@ -45,7 +45,8 @@ const BoardPage: React.FC = () => {
     ollamaEndpoint,
     isOllamaOnline,
     confirm: globalConfirm,
-    alert: globalAlert
+    alert: globalAlert,
+    fillTemplate
   } = useApp();
 
   // Ref to block deep link effect during save operations to prevent modal reopening
@@ -530,7 +531,17 @@ const BoardPage: React.FC = () => {
       ).length;
 
       // 2. Construct Prompt
-      const prompt = getProjectSummaryPrompt(
+      const promptObj = fillTemplate('report_prompt', {
+        projectName: currentProject?.name || 'Unknown Project',
+        totalTasks,
+        byStatusJSON: JSON.stringify(byStatus, null, 2),
+        highPriority: byPriority.High,
+        mediumPriority: byPriority.Medium,
+        lowPriority: byPriority.Low,
+        highPriorityPending,
+        overdueTasks
+      });
+      const prompt = promptObj?.content || getProjectSummaryPrompt(
         currentProject?.name || 'Unknown Project',
         totalTasks,
         byStatus,
@@ -538,6 +549,7 @@ const BoardPage: React.FC = () => {
         highPriorityPending,
         overdueTasks
       );
+      const temperature = promptObj?.temperature || 0.7;
 
       // 3. Call AI
       const response = await fetch('/api/ai/generate', {
@@ -547,7 +559,7 @@ const BoardPage: React.FC = () => {
           'x-ollama-endpoint': ollamaEndpoint,
           'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
         },
-        body: JSON.stringify({ prompt, model: activeModel })
+        body: JSON.stringify({ prompt, model: activeModel, temperature })
       });
 
       if (!response.ok) throw new Error("Failed to generate summary");

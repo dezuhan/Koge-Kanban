@@ -11,7 +11,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
-
+import { initFineTuningDb, registerFineTuningRoutes } from './fineTuningDb.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -276,6 +276,7 @@ let db;
  */
 function initializeDatabase() {
   try {
+    initFineTuningDb();
     db = new Database(DB_PATH, { timeout: 10000 }); // Add 10s timeout to handle busy states
 
     // Enable WAL mode for better concurrency
@@ -1798,7 +1799,7 @@ app.get('/api/ai/models', authenticateToken, async (req, res) => {
 app.post('/api/ai/generate', authenticateToken, async (req, res) => {
   const { prompt, model, options } = req.body;
   const ollamaHost = getOllamaHost(req);
-  const targetModel = model || "qwen2.5:3b";
+  const targetModel = model;
 
   try {
     const requestBody = {
@@ -1839,15 +1840,15 @@ app.post('/api/ai/generate', authenticateToken, async (req, res) => {
  * Proxies chat request to local Ollama instance
  */
 app.post('/api/ai/chat', authenticateToken, async (req, res) => {
-  const { messages, model, options } = req.body;
+  const { messages, model, options, stream } = req.body;
   const ollamaHost = getOllamaHost(req);
-  const targetModel = model || "qwen2.5:3b";
+  const targetModel = model;
 
   try {
     const requestBody = {
       model: targetModel,
       messages: messages,
-      stream: false
+      stream: stream || false
     };
 
     if (options) {
@@ -1868,6 +1869,28 @@ app.post('/api/ai/chat', authenticateToken, async (req, res) => {
       });
     }
 
+    if (stream) {
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Transfer-Encoding', 'chunked');
+      
+      // Since fetch body in Node is a ReadableStream (or Node stream depending on node-fetch version),
+      // we can use standard async iteration or pipe
+      try {
+        if (ollamaRes.body.pipe) {
+           ollamaRes.body.pipe(res);
+        } else {
+           for await (const chunk of ollamaRes.body) {
+             res.write(chunk);
+           }
+           res.end();
+        }
+      } catch (err) {
+        console.error("Stream aborted:", err);
+        res.end();
+      }
+      return;
+    }
+
     const data = await ollamaRes.json();
     res.json({ message: data.message });
 
@@ -1876,6 +1899,8 @@ app.post('/api/ai/chat', authenticateToken, async (req, res) => {
     res.status(500).json({ error: `Failed to connect to Ollama: ${error.message}` });
   }
 });
+
+registerFineTuningRoutes(app, authenticateToken);
 
 // Catch-all handler: Serve index.html for SPA routing
 app.get('*', (req, res) => {

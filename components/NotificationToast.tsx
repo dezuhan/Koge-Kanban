@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, User, MessageSquare } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 
 export interface Notification {
     id: number;
@@ -17,6 +18,7 @@ interface NotificationToastProps {
 
 export const NotificationToast: React.FC<NotificationToastProps> = ({ notification, onClose }) => {
     const [isVisible, setIsVisible] = useState(false);
+    const { isChatOpen } = useApp();
 
     useEffect(() => {
         // Small delay to trigger animation
@@ -44,8 +46,8 @@ export const NotificationToast: React.FC<NotificationToastProps> = ({ notificati
 
     return (
         <div
-            className={`fixed bottom-24 right-6 z-[1000] w-80 bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden transform transition-all duration-300 ease-out flex flex-col ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'
-                }`}
+            className={`fixed bottom-24 z-[1000] w-80 bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden transform transition-all duration-300 ease-out flex flex-col ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'
+                } ${isChatOpen ? 'right-6 md:right-[404px] lg:right-[444px]' : 'right-6'}`}
         >
             <div className="p-4 flex gap-3 pb-3">
                 <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${notification.type === 'mention' ? 'bg-blue-50' :

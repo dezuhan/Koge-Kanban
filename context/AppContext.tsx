@@ -58,6 +58,9 @@ interface AppContextType {
     markNotificationRead: (id: number | string) => Promise<void>;
     removeNotification: (id: number | string) => Promise<void>;
     isWebSocketEnabled: boolean;
+    fineTuningPrompts: any[];
+    fetchFineTuningPrompts: () => Promise<void>;
+    fillTemplate: (id: string, vars: any) => { content: string, temperature: number } | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -177,6 +180,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const [showConnModal, setShowConnModal] = useState(false);
     const [trashRetentionDays, setTrashRetentionDaysState] = useState(3);
     const [autoBackupInterval, setAutoBackupIntervalState] = useState(0);
+
+    const [fineTuningPrompts, setFineTuningPrompts] = useState<any[]>([]);
+
+    const fetchFineTuningPrompts = useCallback(async () => {
+        try {
+            const data = await db.fineTuning.getPrompts();
+            if (data) setFineTuningPrompts(data);
+        } catch (e) {
+            console.error("Failed to fetch fine-tuning prompts", e);
+        }
+    }, []);
+
+    const fillTemplate = useCallback((id: string, vars: any): { content: string, temperature: number } | null => {
+        if (!fineTuningPrompts || fineTuningPrompts.length === 0) return null;
+        const prompt = fineTuningPrompts.find(p => p.id === id);
+        if (!prompt) return null;
+
+        let result = prompt.content;
+        result = result.replace(/\{\{#if (.*?)\}\}([\s\S]*?)\{\{\/if\}\}/g, (match: string, conditionVar: string, content: string) => {
+            return vars[conditionVar.trim()] ? content : '';
+        });
+        result = result.replace(/\{\{(?!#if|\/if)(.*?)\}\}/g, (match: string, varName: string) => {
+            return vars[varName.trim()] !== undefined ? vars[varName.trim()] : '';
+        });
+
+        return { content: result.trim(), temperature: prompt.temperature };
+    }, [fineTuningPrompts]);
 
     // Auth State
     const [user, setUser] = useState<User | null>(null);
@@ -542,6 +572,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     db.get('trash_retention_days') as Promise<number | null>,
                     db.getHealth()
                 ]);
+                await fetchFineTuningPrompts();
 
                 if (fetchedHealth && typeof fetchedHealth.websocket === 'boolean') {
                     setIsWebSocketEnabled(fetchedHealth.websocket);
@@ -715,7 +746,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             autoBackupInterval, setAutoBackupInterval, confirm, alert,
             user, isAuthenticated, login, register, guestLogin, logout, deleteAccount,
             notifications, unreadCount, newNotification, setNewNotification, setNotifications,
-            refreshNotifications, markNotificationRead, removeNotification, isWebSocketEnabled
+            refreshNotifications, markNotificationRead, removeNotification, isWebSocketEnabled,
+            fineTuningPrompts, fetchFineTuningPrompts, fillTemplate
         }}>
             {children}
             <ConfirmModal

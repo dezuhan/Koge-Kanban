@@ -13,7 +13,7 @@ import { db } from '../services/db';
 const Layout: React.FC = () => {
   const {
     appLoading, isSearchOpen, setIsSearchOpen, showConnModal, apiBaseUrl,
-    setApiBaseUrl, isAuthenticated, newNotification, setNewNotification
+    setApiBaseUrl, isAuthenticated, newNotification, setNewNotification, isChatOpen
   } = useApp();
 
   useEffect(() => {
@@ -64,7 +64,7 @@ const Layout: React.FC = () => {
       <ChatBot />
       <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
       <AuthModal isOpen={!isAuthenticated} onClose={() => { }} />
-      <div className="fixed bottom-6 right-6 z-[1001]">
+      <div className={`fixed bottom-6 z-[1001] transition-all duration-300 ease-in-out ${isChatOpen ? 'right-6 md:right-[404px] lg:right-[444px]' : 'right-6'}`}>
         <NotificationCenter />
       </div>
       {newNotification && (

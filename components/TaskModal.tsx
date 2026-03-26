@@ -51,7 +51,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
   projectId: propProjectId,
   isReadOnly = false
 }) => {
-  const { isAIEnabled, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings } = useApp();
+  const { isAIEnabled, activeModel, ollamaEndpoint, alert: globalAlert, prioritySettings, fillTemplate } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<string>('');
@@ -578,7 +578,9 @@ const TaskModal: React.FC<TaskModalProps> = ({
     setIsAILoading(true);
     setAiThinking(null);
     try {
-      const prompt = getAutoFillPrompt(title, description);
+      let promptObj = fillTemplate('autofill_prompt', { title, description });
+      let prompt = promptObj?.content || getAutoFillPrompt(title, description);
+      let temperature = promptObj?.temperature || 0.7;
 
       const response = await fetch('/api/ai/generate', {
         method: 'POST',
@@ -587,7 +589,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
           'x-ollama-endpoint': ollamaEndpoint,
           'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
         },
-        body: JSON.stringify({ prompt, model: activeModel })
+        body: JSON.stringify({ prompt, model: activeModel, temperature })
       });
 
       if (!response.ok) {
@@ -669,7 +671,9 @@ const TaskModal: React.FC<TaskModalProps> = ({
     setIsAILoading(true);
     setAiThinking(null);
     try {
-      const prompt = getMarkdownFormatPrompt(description);
+      let promptObj = fillTemplate('markdown_format_prompt', { description });
+      let prompt = promptObj?.content || getMarkdownFormatPrompt(description);
+      let temperature = promptObj?.temperature || 0.1;
 
       const response = await fetch('/api/ai/generate', {
         method: 'POST',
@@ -678,7 +682,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
           'x-ollama-endpoint': ollamaEndpoint,
           'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
         },
-        body: JSON.stringify({ prompt, model: activeModel })
+        body: JSON.stringify({ prompt, model: activeModel, temperature })
       });
 
       if (!response.ok) {
@@ -729,7 +733,9 @@ const TaskModal: React.FC<TaskModalProps> = ({
     setAiThinking(null);
     try {
       // Construct a prompt based on title and existing description
-      const prompt = getDescriptionPrompt(title, description, userInstructions);
+      let promptObj = fillTemplate('description_prompt', { title, description, userInstructions });
+      let prompt = promptObj?.content || getDescriptionPrompt(title, description, userInstructions);
+      let temperature = promptObj?.temperature || 0.5;
 
       const response = await fetch('/api/ai/generate', {
         method: 'POST',
@@ -738,7 +744,7 @@ const TaskModal: React.FC<TaskModalProps> = ({
           'x-ollama-endpoint': ollamaEndpoint,
           'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
         },
-        body: JSON.stringify({ prompt, model: activeModel })
+        body: JSON.stringify({ prompt, model: activeModel, temperature })
       });
 
       if (!response.ok) {

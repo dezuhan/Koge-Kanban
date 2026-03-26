@@ -15,7 +15,7 @@ interface SubTaskListProps {
 }
 
 export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, parentTaskTitle, parentTaskDescription, isAIEnabled = false, onDisableAI, isReadOnly = false }) => {
-    const { activeModel, ollamaEndpoint, confirm: globalConfirm, alert: globalAlert } = useApp(); // Access active model from context
+    const { activeModel, ollamaEndpoint, confirm: globalConfirm, alert: globalAlert, fillTemplate } = useApp(); // Access active model from context
     const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
     const [isAILoading, setIsAILoading] = useState(false);
     const [showAIContext, setShowAIContext] = useState(false);
@@ -97,7 +97,9 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                 context += `\n\nUser Specific Instructions:\n"${userInstructions}"`;
             }
 
-            const prompt = getSubtasksChecklistPrompt(context);
+            const promptObj = fillTemplate('checklist_prompt', { context });
+            const prompt = promptObj?.content || getSubtasksChecklistPrompt(context);
+            const temperature = promptObj?.temperature || 0.6;
 
             const response = await fetch('/api/ai/generate', {
                 method: 'POST',
@@ -106,7 +108,7 @@ export const SubTaskList: React.FC<SubTaskListProps> = ({ subTasks, onChange, pa
                     'x-ollama-endpoint': ollamaEndpoint,
                     'Authorization': `Bearer ${localStorage.getItem('koge_auth_token')}`
                 },
-                body: JSON.stringify({ prompt, model: activeModel })
+                body: JSON.stringify({ prompt, model: activeModel, temperature })
             });
 
             if (!response.ok) {

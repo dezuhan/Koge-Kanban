@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Priority, PrioritySettings } from '../types';
 import { RefreshCw, RotateCcw, Globe, Cpu, CheckCircle2, Circle, Star, AlertTriangle, Plus, Trash2, ChevronLeft, Layout, Palette, User, Database, Lock, ShieldAlert } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import FineTuningSettings from '../components/FineTuningSettings';
 
-type SettingsCategory = 'general' | 'appearance' | 'security' | 'account';
+type SettingsCategory = 'general' | 'fine-tuning' | 'appearance' | 'security' | 'account';
 
 const SettingsPage: React.FC = () => {
     const navigate = useNavigate();
@@ -310,21 +311,7 @@ const SettingsPage: React.FC = () => {
         });
     };
 
-    const filteredAIModels = aiModels.filter(model => {
-        const m = model.toLowerCase();
-        if (!m.includes('qwen')) return false;
-
-        // version check: Qwen 2 or newer
-        const versionMatch = m.match(/qwen([\d.]+)/);
-        const version = versionMatch ? parseFloat(versionMatch[1]) : 0;
-        if (version < 2) return false;
-
-        // parameter check: 1b-7b
-        const paramMatch = m.match(/(\d+(\.\d+)?)b/);
-        if (!paramMatch) return false;
-        const params = parseFloat(paramMatch[1]);
-        return params >= 1 && params <= 7;
-    });
+    const filteredAIModels = aiModels;
 
     const groupedModels = filteredAIModels.reduce((acc, model) => {
         const group = getGroupName(model);
@@ -343,6 +330,7 @@ const SettingsPage: React.FC = () => {
 
     const categories = [
         { id: 'general', label: 'General', icon: <Globe size={18} />, description: 'Connectivity & AI setup' },
+        { id: 'fine-tuning', label: 'Fine-Tuning', icon: <Cpu size={18} />, description: 'AI Models & Prompts' },
         { id: 'appearance', label: 'Appearance', icon: <Palette size={18} />, description: 'Themes & priority colors' },
         { id: 'security', label: 'Trash & Security', icon: <Trash2 size={18} />, description: 'Data protection & backups' },
         { id: 'account', label: 'Account', icon: <User size={18} />, description: 'Session & profile' },
@@ -526,8 +514,8 @@ const SettingsPage: React.FC = () => {
                                                 ) : filteredAIModels.length === 0 ? (
                                                     <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-200">
                                                         <Cpu size={48} className="mx-auto text-slate-300 mb-4 opacity-50" />
-                                                        <p className="text-sm font-bold text-slate-500">No Recommended Models Found</p>
-                                                        <p className="text-xs text-slate-400 mt-1">Ollama is running, but no Qwen models (1b-7b) were detected.</p>
+                                                        <p className="text-sm font-bold text-slate-500">No Models Found</p>
+                                                        <p className="text-xs text-slate-400 mt-1">Ollama is running, but no models were detected.</p>
                                                     </div>
                                                 ) : (
                                                     <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
@@ -611,6 +599,10 @@ const SettingsPage: React.FC = () => {
                                     </div>
                                 </section>
                             </div>
+                        )}
+
+                        {activeCategory === 'fine-tuning' && (
+                            <FineTuningSettings />
                         )}
 
                         {activeCategory === 'appearance' && (

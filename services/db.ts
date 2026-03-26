@@ -342,6 +342,16 @@ export const db = {
     getAISettings: async (): Promise<{ models: string[], active: string, enabled: boolean, endpoint?: string } | null> => apiAdapter.get(`${getApiUrl()}/ai_settings`),
     saveAISettings: async (settings: { models: string[], active: string, enabled: boolean, endpoint?: string }) => apiAdapter.save('ai_settings', settings),
 
+    // Fine-Tuning
+    fineTuning: {
+        getPrompts: async (): Promise<any[]> => (await apiAdapter.get<any[]>(`${getApiBaseUrl()}/fine-tuning/prompts`)) || [],
+        getPrompt: async (id: string): Promise<any | null> => apiAdapter.get<any>(`${getApiBaseUrl()}/fine-tuning/prompts/${id}`),
+        createPrompt: async (promptData: any) => apiAdapter.post(`${getApiBaseUrl()}/fine-tuning/prompts`, promptData),
+        updatePrompt: async (id: string, promptData: any) => apiAdapter.patch(`${getApiBaseUrl()}/fine-tuning/prompts/${id}`, promptData),
+        resetPrompt: async (id: string) => apiAdapter.post(`${getApiBaseUrl()}/fine-tuning/prompts/${id}/reset`),
+        deletePrompt: async (id: string) => apiAdapter.deleteRaw(`${getApiBaseUrl()}/fine-tuning/prompts/${id}`)
+    },
+
     // Chat History
     /**
      * Fetches chat history for a specific project or global context.

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Loader2, Bot, User, Wand2, MessageSquare, History, PanelRightClose, CheckCircle2, AlertCircle, Layers, Folder, Hash, Bookmark, Zap, RefreshCw, Trash2, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Send, Loader2, Bot, User, Wand2, MessageSquare, History, PanelRightClose, CheckCircle2, AlertCircle, Layers, Folder, Hash, Bookmark, Zap, RefreshCw, Trash2, Sparkles, Navigation } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useApp } from '../context/AppContext';
 import { ChatMessage, Task, Priority } from '../types';
@@ -74,7 +75,8 @@ const extractAllJSON = (str: string) => {
  * A Gemini-style integrated sidebar AI assistant.
  */
 const ChatBot: React.FC = () => {
-    const { isAIEnabled, activeModel, isChatOpen, setIsChatOpen, currentContext, notifyBoardRefresh, projects, isAILoading, setIsAILoading, ollamaEndpoint, confirm: globalConfirm } = useApp();
+    const { isAIEnabled, activeModel, isChatOpen, setIsChatOpen, currentContext, notifyBoardRefresh, projects, isAILoading, setIsAILoading, ollamaEndpoint, confirm: globalConfirm, fillTemplate } = useApp();
+    const navigate = useNavigate();
 
     // All Hooks must be at the top level
     const [messages, setMessages] = useState<ChatMessage[]>([
@@ -330,6 +332,10 @@ ${currentContext.tasks.length > 0
         setIsAILoading(true);
 
         try {
+            const promptObj = fillTemplate('chatbot_system_prompt', { contextSummary, projectsList, referencedData });
+            const finalPrompt = promptObj?.content || getChatbotSystemPrompt(contextSummary, projectsList, referencedData);
+            const temperature = promptObj?.temperature || 0.7;
+
             const response = await fetch('/api/ai/chat', {
                 method: 'POST',
                 headers: {
@@ -339,16 +345,69 @@ ${currentContext.tasks.length > 0
                 },
                 body: JSON.stringify({
                     model: activeModel,
-                    messages: [{ role: 'system', content: getChatbotSystemPrompt(contextSummary, projectsList, referencedData) }, ...messagesPayload]
+                    messages: [{ role: 'system', content: finalPrompt }, ...messagesPayload],
+                    temperature,
+                    stream: true
                 })
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                if (data.message) {
-                    setMessages(prev => [...prev, data.message]);
-                    processAIResponse(data.message.content, trimmedText);
+            if (response.ok && response.body) {
+                // Initialize empty assistant bubble
+                setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let done = false;
+                let fullContent = '';
+                let buffer = '';
+                
+                // Read the NDJSON stream chunk by chunk
+                while (!done) {
+                    const { value, done: readerDone } = await reader.read();
+                    done = readerDone;
+                    if (value) {
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        // Keep the last part in buffer if it doesn't end with a newline
+                        buffer = lines.pop() || '';
+                        
+                        for (const line of lines) {
+                            if (!line.trim()) continue;
+                            try {
+                                const parsed = JSON.parse(line);
+                                if (parsed.message?.content) {
+                                    fullContent += parsed.message.content;
+                                    setMessages(prev => {
+                                        const newMsgs = [...prev];
+                                        const lastMsg = newMsgs[newMsgs.length - 1];
+                                        newMsgs[newMsgs.length - 1] = { ...lastMsg, content: fullContent };
+                                        return newMsgs;
+                                    });
+                                }
+                            } catch (e) {
+                                console.error("Stream parse error on line:", line);
+                            }
+                        }
+                    }
                 }
+                
+                // Process any remaining tail buffer
+                if (buffer.trim()) {
+                     try {
+                          const parsed = JSON.parse(buffer);
+                          if (parsed.message?.content) {
+                               fullContent += parsed.message.content;
+                               setMessages(prev => {
+                                   const newMsgs = [...prev];
+                                   newMsgs[newMsgs.length - 1].content = fullContent;
+                                   return newMsgs;
+                               });
+                          }
+                     } catch (e) {}
+                }
+                
+                // Process tags and action blocks once fully streamed
+                processAIResponse(fullContent, trimmedText);
             } else {
                 throw new Error('Failed to respond');
             }
@@ -710,17 +769,68 @@ ${currentContext.tasks.length > 0
                                         hasActionKeyword;
 
                                     // Check if this specific message consists only of successfully extracted actions
-                                    // If it's ONLY JSON actions, we hide the entire bubble because it's redundant (handled by Action Cards/Summaries)
-                                    if (isOnlyJSON) return null;
+                                    // If it's ONLY JSON actions, we provide a synthetic voice so the user isn't ghosted.
+                                    if (isOnlyJSON) {
+                                        const isLastMessage = idx === messages.length - 1;
+                                        // Auto-hide the placeholder if it's no longer the newest message (e.g. system summary arrived)
+                                        if (!isLastMessage) return null;
 
-                                    // Process @ mentions into markdown links for custom rendering, hiding the #ID part from display
-                                    const processedContent = cleanMsgContent
+                                        return (
+                                            <div key={idx} className={`flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                                                <div className="flex items-center gap-2 mb-1.5 px-1">
+                                                    <div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Bot size={12} /></div>
+                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Assistant</span>
+                                                </div>
+                                                <div className="max-w-[95%] rounded-2xl px-4 py-3 text-sm transition-all relative bg-gray-50 text-gray-800 border border-gray-200 rounded-tl-none hover:border-gray-300">
+                                                    <div className="prose prose-sm max-w-none prose-slate">
+                                                        <p className="italic text-gray-500">
+                                                            {textForCheck.length === 0 && cleanMsgContent.includes('@') 
+                                                                ? "I have prepared the requested actions. Please review the confirmation panel."
+                                                                : "I've analyzed the request and prepared a data payload."}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    let baseContent = cleanMsgContent;
+                                    
+                                    // 1. Convert List Item format to Block Action Card
+                                    baseContent = baseContent.replace(/^[-*•]\s*\[INTERNAL_ID:\s*([^\]]+)\](?:\s*title:\s*"([^"]+)")?(?:,\s*status:\s*"([^"]+)")?.*/gm, (match, id, title, status) => {
+                                        const data = encodeURIComponent(JSON.stringify({ id, title: title || id, status: status || null }));
+                                        return `\n\n[${data}](#action-card)\n\n`;
+                                    });
+
+                                    // 2. Convert remaining inline tags to Inline Pill Button
+                                    baseContent = baseContent.replace(/\[INTERNAL_ID:\s*([^\]]+)\](?:\s*title:\s*"([^"]+)")?(?:,\s*status:\s*"([^"]+)")?/gi, (match, id, title, status) => {
+                                        const data = encodeURIComponent(JSON.stringify({ id, title: title || id, status: status || null }));
+                                        return `[${data}](#action-card-inline)`;
+                                    });
+
+                                    // Process @ mentions into markdown links for custom rendering
+                                    const processedContent = baseContent
                                         .replace(/@\[(.*?)(?:#(.*?))?\]/g, '[$1](#mention)')
                                         .replace(/@(create|update|delete|read|all)\b/g, '[@$1](#exec-tag)');
 
                                     // Final safety check: if after processing we have nothing meaningful to show, skip the bubble
                                     if (msg.role === 'assistant' && processedContent.replace(/```(json|JSON)?/g, '').replace(/```/g, '').trim().length === 0 && jsonBlocks.length > 0) {
-                                        return null;
+                                        const isLastMessage = idx === messages.length - 1;
+                                        if (!isLastMessage) return null;
+
+                                        return (
+                                            <div key={idx} className={`flex flex-col items-start group animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                                                <div className="flex items-center gap-2 mb-1.5 px-1">
+                                                    <div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Bot size={12} /></div>
+                                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Assistant</span>
+                                                </div>
+                                                <div className="max-w-[95%] rounded-2xl px-4 py-3 text-sm transition-all relative bg-gray-50 text-gray-800 border border-gray-200 rounded-tl-none hover:border-gray-300">
+                                                    <div className="prose prose-sm max-w-none prose-slate">
+                                                        <p className="italic text-gray-500">I have prepared the requested actions. Please review the confirmation panel.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
                                     }
 
                                     return (
@@ -764,6 +874,67 @@ ${currentContext.tasks.length > 0
                                                                         </span>
                                                                     );
                                                                 }
+                                                                if (href === '#action-card' || href === '#action-card-inline') {
+                                                                    try {
+                                                                        const data = JSON.parse(decodeURIComponent(String(children)));
+                                                                        const isProject = projects?.some((p: any) => p.id === data.id);
+                                                                        const itemType = isProject ? 'Board' : 'Task';
+                                                                        const isInline = href === '#action-card-inline';
+                                                                        
+                                                                        const handleClick = () => {
+                                                                            if (isProject) {
+                                                                                navigate(`/board/${data.id}`);
+                                                                                if (window.innerWidth < 768) setIsChatOpen(false);
+                                                                            } else if (currentContext) {
+                                                                                navigate(`/board/${currentContext.projectId}/task/${data.id}`);
+                                                                                if (window.innerWidth < 768) setIsChatOpen(false);
+                                                                            }
+                                                                        };
+
+                                                                        if (isInline) {
+                                                                            return (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={handleClick}
+                                                                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold mx-0.5 align-middle shadow-sm bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200 transition-colors cursor-pointer group/link"
+                                                                                    title={`Open ${itemType}`}
+                                                                                >
+                                                                                    <Navigation size={10} className="group-hover/link:-translate-y-0.5 group-hover/link:translate-x-0.5 transition-transform" />
+                                                                                    <span className="truncate max-w-[150px]">{data.title.replace(/✅/g, '').trim()}</span>
+                                                                                </button>
+                                                                            );
+                                                                        }
+
+                                                                        // Block Card Render (Matches Action Preview Style)
+                                                                        return (
+                                                                            <div 
+                                                                                onClick={handleClick}
+                                                                                className="bg-white border border-gray-200 rounded-md p-2.5 relative overflow-hidden cursor-pointer hover:border-blue-300 hover:shadow-md shadow-sm transition-all my-2 group/card block w-full no-underline"
+                                                                            >
+                                                                                <div className={`absolute left-0 top-0 bottom-0 w-1 ${isProject ? 'bg-purple-500' : 'bg-blue-500'}`} />
+                                                                                <div className="flex">
+                                                                                    <div className="flex-1 min-w-0 pr-2 pl-1 pb-0.5">
+                                                                                        <div className="text-sm font-bold text-gray-800 truncate group-hover/card:text-blue-600 transition-colors flex items-center gap-1.5">
+                                                                                            {data.title.replace(/✅|\[|\]/g, '').trim()}
+                                                                                        </div>
+                                                                                        {data.status && (
+                                                                                            <div className="text-[10px] text-gray-400 flex justify-between mt-1">
+                                                                                                <span>Status: <strong className="text-gray-600 font-bold">{data.status}</strong></span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex-shrink-0 flex items-center">
+                                                                                        <span className="text-[9px] uppercase tracking-wider font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">
+                                                                                             {itemType}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    } catch {
+                                                                        return <a href={href}>{children}</a>;
+                                                                    }
+                                                                }
                                                                 return <a href={href} {...props}>{children}</a>;
                                                             },
                                                             pre: ({ children, ...props }) => {
@@ -786,9 +957,9 @@ ${currentContext.tasks.length > 0
                             </>
                         )}
 
-                        {isAILoading && (
+                        {isAILoading && messages.length > 0 && messages[messages.length - 1].role !== 'assistant' && (
                             <div className="flex flex-col items-start animate-pulse">
-                                <div className="flex items-center gap-2 mb-1.5 px-1"><div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Bot size={12} /></div><span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Assistant is typing...</span></div>
+                                <div className="flex items-center gap-2 mb-1.5 px-1"><div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Bot size={12} /></div><span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Assistant is thinking...</span></div>
                                 <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-none px-4 py-4 flex items-center gap-3 w-fit shadow-sm"><div className="flex gap-1"><div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div><div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-100"></div><div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-200"></div></div></div>
                             </div>
                         )}
