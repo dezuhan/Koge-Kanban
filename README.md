@@ -1,3 +1,5 @@
+![](https://koge-kanban.vercel.app/media/koge-kanban.png)
+
 # Koge Kanban
 
 Koge Kanban is a trello alternatives, fast, secure, and AI-powered task manager. It blends personal privacy with smart automation to keep your workflow smooth, whether you're working locally or on a server.
